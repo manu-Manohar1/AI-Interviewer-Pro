@@ -219,7 +219,7 @@ GitHub:
 https://github.com/manu-Manohar1
 
 LinkedIn:
-(Add your LinkedIn profile here)
+
 
 ---
 
