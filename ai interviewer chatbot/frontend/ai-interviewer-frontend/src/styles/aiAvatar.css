@@ -1,0 +1,182 @@
+/* =========================
+   AI Avatar Breathing
+========================= */
+
+@keyframes breathe {
+  0%,100%{
+    transform:scale(1);
+  }
+
+  50%{
+    transform:scale(1.04);
+  }
+}
+
+.animate-breathe{
+  animation:breathe 3s ease-in-out infinite;
+}
+
+
+/* =========================
+   Floating Robot
+========================= */
+
+@keyframes floatRobot{
+
+  0%,100%{
+    transform:translateY(0px);
+  }
+
+  50%{
+    transform:translateY(-6px);
+  }
+
+}
+
+.animate-float{
+  animation:floatRobot 4s ease-in-out infinite;
+}
+
+
+/* =========================
+   AI Glow
+========================= */
+
+@keyframes aiGlow{
+
+  0%{
+    box-shadow:
+      0 0 10px rgba(34,211,238,.45);
+  }
+
+  50%{
+    box-shadow:
+      0 0 30px rgba(34,211,238,.9),
+      0 0 60px rgba(34,211,238,.45);
+  }
+
+  100%{
+    box-shadow:
+      0 0 10px rgba(34,211,238,.45);
+  }
+
+}
+
+.animate-aiGlow{
+  animation:aiGlow 1.6s ease-in-out infinite;
+}
+
+
+/* =========================
+   Glass Reflection
+========================= */
+
+@keyframes glassMove{
+
+  0%{
+    transform:translateX(-180%) rotate(20deg);
+  }
+
+  100%{
+    transform:translateX(250%) rotate(20deg);
+  }
+
+}
+
+.animate-glass{
+  animation:glassMove 5s linear infinite;
+}
+
+
+/* =========================
+   Scanner Beam
+========================= */
+
+@keyframes scan{
+
+  0%{
+    top:5%;
+    opacity:.25;
+  }
+
+  50%{
+    opacity:1;
+  }
+
+  100%{
+    top:92%;
+    opacity:.25;
+  }
+
+}
+
+.animate-scan{
+  animation:scan 2.4s linear infinite;
+}
+
+
+/* =========================
+   Orbit
+========================= */
+
+@keyframes orbit{
+
+  from{
+    transform:rotate(0deg);
+  }
+
+  to{
+    transform:rotate(360deg);
+  }
+
+}
+
+.animate-orbit{
+  animation:orbit 8s linear infinite;
+}
+
+
+/* =========================
+   LIVE Badge
+========================= */
+
+@keyframes livePulse{
+
+  0%,100%{
+    opacity:1;
+  }
+
+  50%{
+    opacity:.45;
+  }
+
+}
+
+.live-badge{
+  animation:livePulse 1s ease-in-out infinite;
+}
+
+
+/* =========================
+   Thinking Glow
+========================= */
+
+@keyframes thinkingGlow{
+
+  0%{
+    color:#c084fc;
+  }
+
+  50%{
+    color:#ffffff;
+  }
+
+  100%{
+    color:#c084fc;
+  }
+
+}
+
+.thinking-text{
+  animation:thinkingGlow 1.8s ease-in-out infinite;
+}
