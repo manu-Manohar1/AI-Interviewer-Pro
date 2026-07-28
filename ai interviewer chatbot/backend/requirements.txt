@@ -5,30 +5,29 @@ sqlalchemy==2.0.36
 alembic==1.14.1
 psycopg[binary]==3.2.2
 
-python-jose[cryptography]>=3.3.0
-passlib[bcrypt]>=1.7.4
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
 
 pydantic==2.9.1
 pydantic-settings==2.7.0
 
-python-multipart>=0.0.6
-python-dotenv>=1.0.1
-email-validator>=2.2.0
+python-multipart==0.0.9
+python-dotenv==1.0.1
+email-validator==2.2.0
 
-pdfplumber>=0.7.7
-python-docx>=0.8.11
-reportlab>=4.0.0
+pdfplumber==0.11.4
+python-docx==1.1.2
+reportlab==4.2.2
 
-google-genai>=1.28.0
-openai>=1.0.0
-openai-whisper==20231117
+google-genai
+openai
 
 sentence-transformers==2.2.2
 transformers==4.40.2
 torch==2.2.2
 
 mediapipe==0.10.20
-opencv-python==4.10.0.84
+opencv-python-headless==4.10.0.84
 
 numpy==1.26.4
 Pillow==10.4.0
