@@ -26,7 +26,7 @@ torch>=2.1.0
 transformers>=4.40.0
 sentence-transformers>=2.2.2
 
-mediapipe==0.10.20
+mediapipe==0.10.35
 opencv-python-headless==4.10.0.84
 
 numpy==1.26.4
