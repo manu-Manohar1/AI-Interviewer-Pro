@@ -19,7 +19,7 @@ from app.routers import (
     report,
     resume,
     session,
-    transcribe,
+   # transcribe,
 )
 
 Base.metadata.create_all(bind=engine)
@@ -56,7 +56,7 @@ app.include_router(auth.router)
 app.include_router(resume.router)
 app.include_router(questions.router)
 app.include_router(interview.router)
-app.include_router(transcribe.router)
+#app.include_router(transcribe.router)
 app.include_router(report.router)
 app.include_router(profile.router)
 app.include_router(analytics.router)
