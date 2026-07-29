@@ -34,4 +34,4 @@ numpy==1.26.4
 Pillow==10.4.0
 scipy==1.13.1
 scikit-learn==1.5.1
-openai-whisper==20230627
+openai-whisper
