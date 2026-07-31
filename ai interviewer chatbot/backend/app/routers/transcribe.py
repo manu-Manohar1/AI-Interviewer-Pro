@@ -9,10 +9,10 @@ import html
 
 router = APIRouter(
     prefix="/transcribe",
-    tags=["transcribe"]
+    tags=["Transcribe"]
 )
 
-# Load Whisper model once when the server starts
+# Load Whisper model once
 model = whisper.load_model("base")
 
 FILLER_WORD_PATTERN = re.compile(
@@ -49,25 +49,21 @@ async def transcribe_audio(
     temp_path = None
 
     try:
-        suffix = os.path.splitext(file.filename)[1]
+        filename = file.filename or "audio.wav"
+        suffix = os.path.splitext(filename)[1] or ".wav"
 
-        if suffix == "":
-            suffix = ".wav"
-
-        with tempfile.NamedTemporaryFile(
-            delete=False,
-            suffix=suffix,
-        ) as temp:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
             temp.write(await file.read())
             temp_path = temp.name
 
         result = model.transcribe(temp_path)
 
-        text = result["text"].strip()
+        text = result.get("text", "").strip()
 
         analysis = analyze_filler_words(text)
 
         return {
+            "success": True,
             "text": text,
             "filler_word_count": analysis["filler_word_count"],
             "highlighted_transcript": analysis["highlighted_transcript"],
@@ -76,7 +72,7 @@ async def transcribe_audio(
     except Exception as e:
         raise HTTPException(
             status_code=500,
-            detail=str(e),
+            detail=f"Transcription failed: {str(e)}"
         )
 
     finally:
