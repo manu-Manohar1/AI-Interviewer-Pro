@@ -10,24 +10,6 @@ export default function History() {
   const [selectedSession, setSelectedSession] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchSessions();
-  }, []);
-
-  const fetchSessions = async () => {
-    try {
-      const data = await getUserSessions(1);
-      setSessions(data || []);
-      if (data && data.length > 0) {
-        handleSelectSession(data[0].id);
-      }
-    } catch (err) {
-      console.error("Failed to fetch sessions:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleSelectSession = async (sessionId) => {
     try {
       const details = await getSessionDetails(sessionId);
@@ -36,6 +18,25 @@ export default function History() {
       console.error("Failed to fetch session details:", err);
     }
   };
+
+  useEffect(() => {
+    const fetchSessions = async () => {
+      try {
+        const data = await getUserSessions(1);
+        setSessions(data || []);
+
+        if (data && data.length > 0) {
+          handleSelectSession(data[0].id);
+        }
+      } catch (err) {
+        console.error("Failed to fetch sessions:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchSessions();
+  }, []);
 
   const logout = () => {
     localStorage.removeItem("token");
@@ -56,6 +57,7 @@ export default function History() {
               Review your past multi-question interview performances and detailed feedback.
             </p>
           </div>
+
           <button
             onClick={() => navigate("/dashboard")}
             className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 text-white font-medium text-sm transition-all"
@@ -65,10 +67,15 @@ export default function History() {
         </div>
 
         {loading ? (
-          <div className="text-center py-12 text-gray-400">Loading interview sessions...</div>
+          <div className="text-center py-12 text-gray-400">
+            Loading interview sessions...
+          </div>
         ) : sessions.length === 0 ? (
           <div className="bg-white/5 border border-white/10 p-10 rounded-3xl text-center space-y-3">
-            <p className="text-gray-300 font-semibold text-lg">No past interview sessions found.</p>
+            <p className="text-gray-300 font-semibold text-lg">
+              No past interview sessions found.
+            </p>
+
             <button
               onClick={() => navigate("/interview")}
               className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 text-white font-bold text-sm shadow-lg"
@@ -83,6 +90,7 @@ export default function History() {
               <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400 px-1">
                 Completed Sessions ({sessions.length})
               </h2>
+
               {sessions.map((s) => (
                 <div
                   key={s.id}
@@ -95,17 +103,24 @@ export default function History() {
                 >
                   <div className="flex justify-between items-start">
                     <div>
-                      <h3 className="font-bold text-white text-base">{s.role}</h3>
+                      <h3 className="font-bold text-white text-base">
+                        {s.role}
+                      </h3>
+
                       <p className="text-xs text-gray-400 mt-0.5">
                         {s.company || "General"} • {s.difficulty}
                       </p>
                     </div>
+
                     <span className="text-sm font-black text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/20">
                       {Math.round((s.average_score || 0) * 10)}%
                     </span>
                   </div>
+
                   <p className="text-[11px] text-gray-500 mt-3 text-right">
-                    {s.created_at ? new Date(s.created_at).toLocaleDateString() : "Recent"}
+                    {s.created_at
+                      ? new Date(s.created_at).toLocaleDateString()
+                      : "Recent"}
                   </p>
                 </div>
               ))}
@@ -121,22 +136,40 @@ export default function History() {
                 >
                   <div className="border-b border-white/10 pb-4 flex justify-between items-center">
                     <div>
-                      <h2 className="text-xl font-bold text-white">{selectedSession.role} Details</h2>
+                      <h2 className="text-xl font-bold text-white">
+                        {selectedSession.role} Details
+                      </h2>
+
                       <p className="text-xs text-gray-400 mt-1">
-                        Company: <span className="text-white">{selectedSession.company || "General"}</span> • Difficulty: <span className="text-white">{selectedSession.difficulty}</span>
+                        Company:{" "}
+                        <span className="text-white">
+                          {selectedSession.company || "General"}
+                        </span>{" "}
+                        • Difficulty:{" "}
+                        <span className="text-white">
+                          {selectedSession.difficulty}
+                        </span>
                       </p>
                     </div>
+
                     <div className="text-right">
                       <p className="text-3xl font-black text-cyan-400">
-                        {Math.round((selectedSession.average_score || 0) * 10)}%
+                        {Math.round(
+                          (selectedSession.average_score || 0) * 10
+                        )}
+                        %
                       </p>
-                      <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Overall Score</p>
+
+                      <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">
+                        Overall Score
+                      </p>
                     </div>
                   </div>
 
                   {/* Question & Answer Breakdown */}
                   <div className="space-y-4 max-h-[520px] overflow-y-auto pr-2">
-                    {selectedSession.results && selectedSession.results.length > 0 ? (
+                    {selectedSession.results &&
+                    selectedSession.results.length > 0 ? (
                       selectedSession.results.map((res, idx) => (
                         <div
                           key={res.id || idx}
@@ -145,13 +178,19 @@ export default function History() {
                           <p className="text-sm font-bold text-cyan-300">
                             Q{idx + 1}: {res.question}
                           </p>
+
                           <div className="bg-white/5 p-3 rounded-xl border border-white/5">
-                            <p className="text-xs text-gray-300 italic">"{res.answer}"</p>
+                            <p className="text-xs text-gray-300 italic">
+                              "{res.answer}"
+                            </p>
                           </div>
+
                           <div className="flex justify-between items-center pt-1 text-xs">
                             <span className="font-bold text-emerald-400">
-                              Score: {Math.round((res.overall_score || 0) * 10)}%
+                              Score:{" "}
+                              {Math.round((res.overall_score || 0) * 10)}%
                             </span>
+
                             <span className="text-gray-400 max-w-[70%] truncate">
                               {res.feedback_text}
                             </span>
@@ -159,13 +198,16 @@ export default function History() {
                         </div>
                       ))
                     ) : (
-                      <p className="text-gray-400 text-sm py-4">No individual question results stored for this session.</p>
+                      <p className="text-gray-400 text-sm py-4">
+                        No individual question results stored for this session.
+                      </p>
                     )}
                   </div>
                 </motion.div>
               ) : (
                 <div className="bg-white/5 border border-white/10 p-10 rounded-3xl text-center text-gray-400">
-                  Select an interview session from the list to view its complete question breakdown.
+                  Select an interview session from the list to view its complete
+                  question breakdown.
                 </div>
               )}
             </div>
