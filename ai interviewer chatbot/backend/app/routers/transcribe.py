@@ -9,16 +9,23 @@ import html
 
 router = APIRouter(
     prefix="/transcribe",
-    tags=["Transcribe"]
+    tags=["transcribe"]
 )
 
-# Load Whisper model once
-model = whisper.load_model("base")
+# Lazy loading
+model = None
 
 FILLER_WORD_PATTERN = re.compile(
     r"\b(?:um|uh|like|actually|basically)\b",
     re.IGNORECASE,
 )
+
+
+def get_model():
+    global model
+    if model is None:
+        model = whisper.load_model("tiny")   # Use tiny to reduce memory
+    return model
 
 
 def analyze_filler_words(text: str):
@@ -49,31 +56,30 @@ async def transcribe_audio(
     temp_path = None
 
     try:
-        filename = file.filename or "audio.wav"
-        suffix = os.path.splitext(filename)[1] or ".wav"
+        suffix = os.path.splitext(file.filename)[1]
+        if suffix == "":
+            suffix = ".wav"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp:
             temp.write(await file.read())
             temp_path = temp.name
 
-        result = model.transcribe(temp_path)
+        whisper_model = get_model()
 
-        text = result.get("text", "").strip()
+        result = whisper_model.transcribe(temp_path)
+
+        text = result["text"].strip()
 
         analysis = analyze_filler_words(text)
 
         return {
-            "success": True,
             "text": text,
             "filler_word_count": analysis["filler_word_count"],
             "highlighted_transcript": analysis["highlighted_transcript"],
         }
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Transcription failed: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=str(e))
 
     finally:
         if temp_path and os.path.exists(temp_path):
