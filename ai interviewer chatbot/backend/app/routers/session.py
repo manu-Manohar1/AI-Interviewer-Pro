@@ -1,8 +1,11 @@
+import os
+import logging
 from datetime import datetime, timezone
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from google import genai
 
 from app.database import get_db
 from app.models import User
@@ -19,19 +22,40 @@ from app.schemas.session import (
     SessionStartResponse,
 )
 
-# Import question generator from existing questions router/service
-try:
-    from app.routers.questions import generate_interview_questions
-except ImportError:
-    try:
-        from app.routers.questions import generate_questions as generate_interview_questions
-    except ImportError:
-        generate_interview_questions = None
+logger = logging.getLogger("app.session")
 
 router = APIRouter(
     prefix="/session",
     tags=["Interview Session"],
 )
+
+# Initialize Gemini Client directly for reliable session question generation
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+
+def generate_session_question(role: str, company: str, difficulty: str, excluded_questions: List[str] = None) -> str:
+    """Helper function to synchronously generate a single targeted question via Gemini."""
+    if not client:
+        return f"Tell me about a challenging {role} project you built."
+
+    excluded_str = ", ".join([f'"{q}"' for q in (excluded_questions or [])])
+    prompt = (
+        f"Generate 1 distinct {difficulty} interview question for a {role} position at {company}. "
+        f"Do NOT generate any of the following questions: [{excluded_str}]. "
+        f"Return ONLY the question text without numbers, quotes, or formatting."
+    )
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt,
+        )
+        question_text = (response.text or "").strip().lstrip("0123456789.-* ")
+        return question_text if question_text else f"Explain key system design trade-offs for {role}."
+    except Exception as e:
+        logger.error(f"Failed to generate Gemini question: {e}")
+        return f"Describe a time you solved a complex issue as a {role}."
 
 
 @router.get("/user/{user_id}", response_model=List[SessionResponse])
@@ -39,9 +63,6 @@ def get_user_sessions(
     user_id: int,
     db: Session = Depends(get_db)
 ):
-    """
-    Fetches all past interview sessions for a specific user.
-    """
     sessions = (
         db.query(InterviewSession)
         .filter(InterviewSession.user_id == user_id)
@@ -56,9 +77,6 @@ def create_interview_session(
     payload: SessionCreateRequest,
     db: Session = Depends(get_db)
 ):
-    """
-    Initializes a new multi-question interview session and generates Question 1.
-    """
     target_user_id = payload.user_id if payload.user_id is not None else 1
 
     user = db.query(User).filter(User.id == target_user_id).first()
@@ -75,7 +93,7 @@ def create_interview_session(
     new_session = InterviewSession(
         user_id=target_user_id,
         role=payload.role,
-        company=payload.company,
+        company=payload.company or "General",
         difficulty=payload.difficulty or "Medium",
         total_questions=payload.total_questions or 5,
         answered_questions=0,
@@ -86,22 +104,11 @@ def create_interview_session(
     db.commit()
     db.refresh(new_session)
 
-    first_question = f"Tell me about your experience and background as a {payload.role}."
-
-    if generate_interview_questions:
-        try:
-            generated = generate_interview_questions(
-                role=payload.role,
-                company=payload.company or "General",
-                difficulty=payload.difficulty or "Medium",
-                num_questions=1,
-            )
-            if isinstance(generated, list) and len(generated) > 0:
-                first_question = generated[0]
-            elif isinstance(generated, str) and generated.strip():
-                first_question = generated
-        except Exception:
-            pass
+    first_question = generate_session_question(
+        role=payload.role,
+        company=payload.company or "General",
+        difficulty=payload.difficulty or "Medium",
+    )
 
     return SessionStartResponse(
         session_id=new_session.id,
@@ -117,9 +124,6 @@ def submit_answer_for_session(
     payload: AnswerSubmitRequest,
     db: Session = Depends(get_db)
 ):
-    """
-    Saves an answer, updates metrics, and returns evaluation with a UNIQUE next question.
-    """
     session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
     if not session:
         raise HTTPException(
@@ -133,7 +137,6 @@ def submit_answer_for_session(
             detail="This interview session is already completed."
         )
 
-    # 1. Save current answer result to DB
     new_result = InterviewResult(
         user_id=payload.user_id,
         session_id=session.id,
@@ -149,7 +152,6 @@ def submit_answer_for_session(
     )
     db.add(new_result)
 
-    # 2. Update session metrics
     session.answered_questions += 1
     existing_results = db.query(InterviewResult).filter(InterviewResult.session_id == session_id).all()
     all_scores = [r.overall_score for r in existing_results] + [payload.overall_score]
@@ -158,43 +160,18 @@ def submit_answer_for_session(
     next_question = None
     is_completed = False
 
-    # 3. Check progress & generate unique next question
     if session.answered_questions >= session.total_questions:
         session.status = "Completed"
         session.completed_at = datetime.now(timezone.utc)
         is_completed = True
     else:
         asked_questions = [r.question for r in existing_results] + [payload.question]
-        next_q_num = session.answered_questions + 1
-
-        fallbacks = [
-            f"Describe a challenging technical project you worked on as a {session.role}.",
-            f"How do you handle debugging and troubleshooting critical issues in production?",
-            f"Explain key system design concepts relevant to building scalable {session.role} applications.",
-            f"What are your best practices for code reviews and writing maintainable code?",
-        ]
-        fallback_index = (next_q_num - 2) % len(fallbacks)
-        default_next_q = fallbacks[fallback_index]
-
-        if generate_interview_questions:
-            try:
-                generated = generate_interview_questions(
-                    role=session.role,
-                    company=session.company or "General",
-                    difficulty=session.difficulty,
-                    num_questions=3,
-                )
-                if isinstance(generated, list):
-                    candidate_q = next((q for q in generated if q not in asked_questions), None)
-                    next_question = candidate_q if candidate_q else generated[0]
-                elif isinstance(generated, str) and generated.strip() and generated not in asked_questions:
-                    next_question = generated
-                else:
-                    next_question = default_next_q
-            except Exception:
-                next_question = default_next_q
-        else:
-            next_question = default_next_q
+        next_question = generate_session_question(
+            role=session.role,
+            company=session.company,
+            difficulty=session.difficulty,
+            excluded_questions=asked_questions,
+        )
 
     db.commit()
 
