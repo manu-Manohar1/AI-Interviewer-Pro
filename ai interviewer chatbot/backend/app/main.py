@@ -5,14 +5,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
+# Import all application routers
 from app.routers import (
     auth,
+    session,
+    resume,
     transcribe,
     interview,
     questions,
-    resume,
     eye_contact,
-    session,  # Make sure session.py router is imported
 )
 
 logging.basicConfig(
@@ -37,6 +38,7 @@ app = FastAPI(
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# CORS configuration allowing cross-origin requests from Vercel frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -45,7 +47,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Register all routers under /api/v1
+# Register all API endpoints under /api/v1
 app.include_router(auth.router, prefix="/api/v1")
 app.include_router(session.router, prefix="/api/v1")
 app.include_router(resume.router, prefix="/api/v1")
@@ -60,7 +62,7 @@ async def health_check():
     return {
         "status": "healthy",
         "service": "AI Interviewer Pro Backend",
-        "version": "2.0.0"
+        "version": "2.0.0",
     }
 
 
