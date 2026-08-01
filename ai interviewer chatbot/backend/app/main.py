@@ -5,8 +5,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
-# 1. Added auth to the imports
-from app.routers import transcribe, interview, questions, resume, eye_contact, auth
+from app.routers import (
+    auth,
+    transcribe,
+    interview,
+    questions,
+    resume,
+    eye_contact,
+    session,  # Make sure session.py router is imported
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,12 +45,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 2. Register all routers under /api/v1 (or mount auth with /api/v1 prefix)
+# Register all routers under /api/v1
 app.include_router(auth.router, prefix="/api/v1")
+app.include_router(session.router, prefix="/api/v1")
+app.include_router(resume.router, prefix="/api/v1")
 app.include_router(transcribe.router, prefix="/api/v1")
 app.include_router(interview.router, prefix="/api/v1")
 app.include_router(questions.router, prefix="/api/v1")
-app.include_router(resume.router, prefix="/api/v1")
 app.include_router(eye_contact.router, prefix="/api/v1")
 
 
