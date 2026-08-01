@@ -1,7 +1,7 @@
 import os
 import time
 import logging
-import google.generativeai as genai
+from google import genai
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -15,10 +15,8 @@ router = APIRouter(
     tags=["questions"],
 )
 
-# Configure Gemini Client Globally
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 
 class QuestionRequest(BaseModel):
@@ -37,13 +35,10 @@ async def generate_questions(
     req: QuestionRequest,
     current_user=Depends(get_current_user),
 ):
-    """
-    Generates interview questions using Gemini API with input validation.
-    """
     start_time = time.time()
     user_id = getattr(current_user, "id", "unknown")
 
-    if not GEMINI_API_KEY:
+    if not client:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Gemini API key is not configured.",
@@ -56,8 +51,10 @@ async def generate_questions(
     )
 
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-1.5-flash",
+            contents=prompt,
+        )
 
         raw_text = response.text or ""
         questions = [
@@ -66,7 +63,6 @@ async def generate_questions(
             if line.strip()
         ]
 
-        # Ensure fallback defaults if AI output is empty
         if not questions:
             questions = [
                 f"Explain a challenging {req.role} project you built.",
