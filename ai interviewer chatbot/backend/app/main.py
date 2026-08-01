@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
-from app.routers import transcribe, interview, questions, resume, eye_contact
+# 1. Added auth to the imports
+from app.routers import transcribe, interview, questions, resume, eye_contact, auth
 
 logging.basicConfig(
     level=logging.INFO,
@@ -17,8 +18,6 @@ logger = logging.getLogger("app.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Application starting up...")
-    # NOTE: Preloading heavy models (Whisper/MediaPipe) at startup is disabled
-    # to keep RAM usage below Render Free's strict 512MB limit.
     yield
     logger.info("Application shutting down...")
 
@@ -39,11 +38,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(transcribe.router)
-app.include_router(interview.router)
-app.include_router(questions.router)
-app.include_router(resume.router)
-app.include_router(eye_contact.router)
+# 2. Register all routers under /api/v1 (or mount auth with /api/v1 prefix)
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(transcribe.router, prefix="/api/v1")
+app.include_router(interview.router, prefix="/api/v1")
+app.include_router(questions.router, prefix="/api/v1")
+app.include_router(resume.router, prefix="/api/v1")
+app.include_router(eye_contact.router, prefix="/api/v1")
 
 
 @app.get("/health", tags=["Health"])
