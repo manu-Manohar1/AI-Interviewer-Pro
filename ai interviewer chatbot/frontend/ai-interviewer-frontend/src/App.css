@@ -1,10 +1,26 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Poppins', sans-serif;
+  background-color: #282c34;
+}
+
 .App {
   text-align: center;
+  width: 100%;
 }
 
 .App-logo {
-  height: 40vmin;
+  height: 250px;
+  max-width: 80%;
+  object-fit: contain;
   pointer-events: none;
+  /* GPU acceleration to prevent lag during animation */
+  will-change: transform;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -16,12 +32,14 @@
 .App-header {
   background-color: #282c34;
   min-height: 100vh;
+  min-height: 100dvh; /* Smooth height scaling on mobile browsers */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  font-size: calc(10px + 2vmin);
+  font-size: 1.2rem;
   color: white;
+  padding: 20px;
 }
 
 .App-link {
@@ -34,5 +52,29 @@
   }
   to {
     transform: rotate(360deg);
+  }
+}
+
+/* ==========================================
+   Mobile & Tablet Responsive Layout
+   ========================================== */
+@media (max-width: 768px) {
+  .App-header {
+    font-size: 1rem;
+    padding: 15px;
+  }
+
+  .App-logo {
+    height: 180px;
+  }
+}
+
+@media (max-width: 480px) {
+  .App-header {
+    font-size: 0.95rem;
+  }
+
+  .App-logo {
+    height: 140px;
   }
 }
