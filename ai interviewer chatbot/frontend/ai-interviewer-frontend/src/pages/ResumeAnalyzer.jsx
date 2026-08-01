@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import Sidebar from "../components/Sidebar";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -15,6 +15,15 @@ export default function ResumeAnalyzer() {
   const [file, setFile] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [result, setResult] = useState(null);
+
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   const handleDrop = (e) => {
     e.preventDefault();
@@ -33,28 +42,34 @@ export default function ResumeAnalyzer() {
       const res = await api.post("/resume/analyze", formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      setResult(res.data);
+      if (isMountedRef.current) {
+        setResult(res.data);
+      }
     } catch (err) {
       console.warn("Using fallback AI analysis result:", err);
-      // Fallback evaluation data for UI preview
-      setResult({
-        score: 84,
-        keywordMatch: 78,
-        strengths: [
-          "Strong technical project descriptions with modern ML frameworks",
-          "Relevant Python, TensorFlow, and React keywords present",
-          "Clean layout with clear contact & skill hierarchy",
-        ],
-        weaknesses: [
-          "Missing metric-driven outcome figures in recent project history",
-          "No direct links to live GitHub repositories or production demos",
-        ],
-        missingSkills: ["Docker", "Kubernetes", "System Design", "CI/CD Pipeline"],
-        suggestions:
-          "Quantify project achievements with metrics (e.g., 'Improved model inference speed by 24% using ONNX runtime'). Add system design keywords for Senior role matches.",
-      });
+      if (isMountedRef.current) {
+        // Fallback evaluation data for UI preview
+        setResult({
+          score: 84,
+          keywordMatch: 78,
+          strengths: [
+            "Strong technical project descriptions with modern ML frameworks",
+            "Relevant Python, TensorFlow, and React keywords present",
+            "Clean layout with clear contact & skill hierarchy",
+          ],
+          weaknesses: [
+            "Missing metric-driven outcome figures in recent project history",
+            "No direct links to live GitHub repositories or production demos",
+          ],
+          missingSkills: ["Docker", "Kubernetes", "System Design", "CI/CD Pipeline"],
+          suggestions:
+            "Quantify project achievements with metrics (e.g., 'Improved model inference speed by 24% using ONNX runtime'). Add system design keywords for Senior role matches.",
+        });
+      }
     } finally {
-      setAnalyzing(false);
+      if (isMountedRef.current) {
+        setAnalyzing(false);
+      }
     }
   };
 
@@ -64,21 +79,21 @@ export default function ResumeAnalyzer() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex select-none transform-gpu">
+    <div className="min-h-screen bg-slate-950 text-white flex select-none transform-gpu overflow-x-hidden">
       {/* Sidebar Navigation */}
       <Sidebar />
 
       {/* Main Container */}
-      <main className="flex-1 ml-64 p-8 relative overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950/40 to-black">
+      <main className="flex-1 ml-0 md:ml-64 p-4 sm:p-8 relative overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950/40 to-black min-w-0">
         {/* Background Ambient Glows */}
-        <div className="absolute top-0 right-1/4 w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[140px] pointer-events-none" />
-        <div className="absolute bottom-0 left-1/3 w-[500px] h-[500px] bg-indigo-500/10 rounded-full blur-[140px] pointer-events-none" />
+        <div className="absolute top-0 right-1/4 w-[300px] sm:w-[500px] h-[300px] sm:h-[500px] bg-cyan-500/10 rounded-full blur-[100px] sm:blur-[140px] pointer-events-none" />
+        <div className="absolute bottom-0 left-1/3 w-[300px] sm:w-[500px] h-[300px] sm:h-[500px] bg-indigo-500/10 rounded-full blur-[100px] sm:blur-[140px] pointer-events-none" />
 
-        <div className="max-w-6xl mx-auto space-y-8 relative z-10">
+        <div className="max-w-6xl mx-auto space-y-6 sm:space-y-8 relative z-10">
           {/* Top Title Banner */}
-          <div className="flex items-center justify-between pb-4 border-b border-white/10">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/10">
             <div>
-              <h1 className="text-3xl font-black text-white tracking-tight flex items-center gap-2">
+              <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2">
                 📄 AI Resume Analyzer
               </h1>
               <p className="text-xs text-gray-400 mt-1">
@@ -86,7 +101,7 @@ export default function ResumeAnalyzer() {
               </p>
             </div>
 
-            <div className="px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-xs font-bold uppercase tracking-wider">
+            <div className="self-start sm:self-auto px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[11px] sm:text-xs font-bold uppercase tracking-wider shrink-0">
               ● ATS Scanner Ready
             </div>
           </div>
@@ -100,30 +115,34 @@ export default function ResumeAnalyzer() {
               onDrop={handleDrop}
               className="
                 border-2 border-dashed border-white/15 hover:border-cyan-500/50
-                rounded-3xl p-10 text-center
-                bg-slate-900/60 backdrop-blur-2xl
+                rounded-2xl sm:rounded-3xl p-6 sm:p-10 text-center
+                bg-slate-900/60 backdrop-blur-xl sm:backdrop-blur-2xl
                 shadow-2xl transition-all duration-300
                 group relative overflow-hidden
               "
             >
-              <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-3xl group-hover:scale-110 transition">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 mx-auto mb-4 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400 text-2xl sm:text-3xl group-hover:scale-110 transition">
                 <FaCloudUploadAlt />
               </div>
 
-              <h2 className="text-lg font-bold text-white mb-1">
+              <h2 className="text-base sm:text-lg font-bold text-white mb-1 break-all px-2">
                 {file ? file.name : "Drag & Drop your resume (PDF / DOCX)"}
               </h2>
               <p className="text-xs text-gray-400 max-w-sm mx-auto">
                 Upload your latest CV to evaluate ATS keyword match rates, formatting health, and skill gaps.
               </p>
 
-              <div className="mt-6 flex items-center justify-center gap-3">
-                <label className="px-5 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/10 text-xs font-bold cursor-pointer transition active:scale-95">
+              <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+                <label className="w-full sm:w-auto px-5 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/10 text-xs font-bold cursor-pointer transition active:scale-95 text-center">
                   Browse Files
                   <input
                     type="file"
                     accept=".pdf,.docx"
-                    onChange={(e) => setFile(e.target.files[0])}
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setFile(e.target.files[0]);
+                      }
+                    }}
                     className="hidden"
                   />
                 </label>
@@ -133,7 +152,7 @@ export default function ResumeAnalyzer() {
                     type="button"
                     onClick={handleUpload}
                     disabled={analyzing}
-                    className="px-6 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-500/20 transition active:scale-95 disabled:opacity-50 flex items-center gap-2"
+                    className="w-full sm:w-auto px-6 py-2.5 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-500/20 transition active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
                   >
                     {analyzing ? (
                       <>
@@ -159,26 +178,26 @@ export default function ResumeAnalyzer() {
                 transition={{ duration: 0.3 }}
                 className="space-y-6"
               >
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-bold text-white">Evaluation Results</h2>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <h2 className="text-lg sm:text-xl font-bold text-white">Evaluation Results</h2>
                   <button
                     type="button"
                     onClick={handleReset}
-                    className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-gray-300 flex items-center gap-2 transition"
+                    className="self-start sm:self-auto px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-gray-300 flex items-center gap-2 transition active:scale-95"
                   >
                     <FaRedo /> Analyze Another Resume
                   </button>
                 </div>
 
-                <div className="grid grid-cols-12 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 sm:gap-6">
                   {/* Score Display Card */}
-                  <div className="col-span-12 lg:col-span-4 bg-slate-900/60 border border-white/10 rounded-3xl p-6 backdrop-blur-2xl text-center flex flex-col items-center justify-between shadow-2xl">
+                  <div className="lg:col-span-4 bg-slate-900/60 border border-white/10 rounded-2xl sm:rounded-3xl p-5 sm:p-6 backdrop-blur-xl sm:backdrop-blur-2xl text-center flex flex-col items-center justify-between shadow-2xl">
                     <div className="w-full">
-                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-6">
+                      <p className="text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-4 sm:mb-6">
                         Overall ATS Match Score
                       </p>
 
-                      <div className="relative w-40 h-40 mx-auto flex items-center justify-center">
+                      <div className="relative w-36 h-36 sm:w-40 sm:h-40 mx-auto flex items-center justify-center">
                         <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                           <path
                             className="text-slate-800 stroke-current"
@@ -196,7 +215,7 @@ export default function ResumeAnalyzer() {
                           />
                         </svg>
                         <div className="absolute text-center">
-                          <span className="text-4xl font-black text-white">{result.score}%</span>
+                          <span className="text-3xl sm:text-4xl font-black text-white">{result.score}%</span>
                           <p className="text-[10px] text-cyan-400 font-bold uppercase mt-0.5">
                             {result.score >= 80 ? "Interview Ready" : "Needs Optimization"}
                           </p>
@@ -206,7 +225,7 @@ export default function ResumeAnalyzer() {
 
                     <button
                       type="button"
-                      className="mt-8 w-full py-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-white flex items-center justify-center gap-2 transition active:scale-95"
+                      className="mt-6 sm:mt-8 w-full py-3 rounded-2xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-white flex items-center justify-center gap-2 transition active:scale-95"
                     >
                       <FaFilePdf className="text-rose-400 text-sm" />
                       <span>Download Audit PDF</span>
@@ -214,9 +233,9 @@ export default function ResumeAnalyzer() {
                   </div>
 
                   {/* Analysis Breakdown */}
-                  <div className="col-span-12 lg:col-span-8 space-y-4">
+                  <div className="lg:col-span-8 space-y-4">
                     {/* Identified Strengths */}
-                    <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-5 backdrop-blur-2xl shadow-xl">
+                    <div className="bg-slate-900/60 border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-5 backdrop-blur-xl sm:backdrop-blur-2xl shadow-xl">
                       <h3 className="text-xs font-extrabold text-emerald-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                         <FaCheckCircle /> Identified Strengths
                       </h3>
@@ -231,7 +250,7 @@ export default function ResumeAnalyzer() {
                     </div>
 
                     {/* Critical Missing Skills */}
-                    <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-5 backdrop-blur-2xl shadow-xl">
+                    <div className="bg-slate-900/60 border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-5 backdrop-blur-xl sm:backdrop-blur-2xl shadow-xl">
                       <h3 className="text-xs font-extrabold text-rose-400 uppercase tracking-wider mb-3 flex items-center gap-2">
                         <FaExclamationTriangle /> Critical Missing Keywords
                       </h3>
@@ -248,7 +267,7 @@ export default function ResumeAnalyzer() {
                     </div>
 
                     {/* AI Recommendations */}
-                    <div className="bg-slate-900/60 border border-white/10 rounded-3xl p-5 backdrop-blur-2xl shadow-xl">
+                    <div className="bg-slate-900/60 border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-5 backdrop-blur-xl sm:backdrop-blur-2xl shadow-xl">
                       <h3 className="text-xs font-extrabold text-amber-400 uppercase tracking-wider mb-2 flex items-center gap-2">
                         <FaLightbulb /> AI Optimization Recommendations
                       </h3>

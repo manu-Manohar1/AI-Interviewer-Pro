@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 
 import StatsCards from "../components/dashboard/StatsCards";
 import PerformanceChart from "../components/dashboard/PerformanceChart";
@@ -31,13 +31,16 @@ export default function Dashboard() {
     resumes: 0,
   });
 
-  const [chartData, setChartData] = useState([]);
-  const [history, setHistory] = useState([]);
+  const [rawSessions, setRawSessions] = useState([]);
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchDashboardData = async () => {
       try {
         const sessionsData = await getUserSessions(1);
+
+        if (!isMounted) return;
 
         if (Array.isArray(sessionsData) && sessionsData.length > 0) {
           const total = sessionsData.length;
@@ -52,21 +55,11 @@ export default function Dashboard() {
             resumes: 1,
           });
 
-          setHistory(sessionsData);
-
-          // Filter out zero/uncompleted scores for a smooth trend line
-          const validSessions = sessionsData.filter(
-            (s) => (s.average_score || s.overall_score || 0) > 0
-          );
-
-          setChartData(
-            validSessions.map((item, index) => ({
-              name: `#${index + 1}`,
-              score: Math.round((item.average_score || item.overall_score || 0) * 10),
-            }))
-          );
+          setRawSessions(sessionsData);
         } else {
           const res = await api.get("/interview/stats");
+          if (!isMounted) return;
+
           setStats({
             total_interviews: res.data.total_interviews || 0,
             average_score: Math.round((res.data.average_score || 0) * 10),
@@ -77,19 +70,9 @@ export default function Dashboard() {
           });
 
           const historyRes = await api.get("/interview/history");
-          const rawHistory = historyRes.data || [];
-          setHistory(rawHistory);
+          if (!isMounted) return;
 
-          const validHistory = rawHistory.filter(
-            (item) => (item.overall_score || item.average_score || 0) > 0
-          );
-
-          setChartData(
-            validHistory.map((item, index) => ({
-              name: `#${index + 1}`,
-              score: Math.round((item.overall_score || item.average_score || 0) * 10),
-            }))
-          );
+          setRawSessions(historyRes.data || []);
         }
       } catch (err) {
         console.error("Dashboard data fetch error:", err);
@@ -97,51 +80,75 @@ export default function Dashboard() {
     };
 
     fetchDashboardData();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
-  const logout = () => {
+  // Optimized Memoized Calculations for Chart & Activity List
+  const chartData = useMemo(() => {
+    const validSessions = rawSessions.filter(
+      (s) => (s.average_score || s.overall_score || 0) > 0
+    );
+
+    return validSessions.map((item, index) => ({
+      name: `#${index + 1}`,
+      score: Math.round((item.average_score || item.overall_score || 0) * 10),
+    }));
+  }, [rawSessions]);
+
+  const recentHistory = useMemo(() => {
+    return rawSessions.slice(0, 5);
+  }, [rawSessions]);
+
+  const logout = useCallback(() => {
     localStorage.removeItem("token");
     navigate("/");
-  };
+  }, [navigate]);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white relative overflow-hidden select-none transform-gpu">
+    <div className="min-h-screen bg-slate-950 text-white relative overflow-x-hidden select-none transform-gpu">
       {/* Background Ambient Glows */}
-      <div className="absolute -top-40 -left-40 w-[600px] h-[600px] bg-cyan-500/10 rounded-full blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-indigo-500/10 rounded-full blur-[140px] pointer-events-none" />
+      <div className="absolute -top-40 -left-40 w-[300px] sm:w-[600px] h-[300px] sm:h-[600px] bg-cyan-500/10 rounded-full blur-[100px] sm:blur-[140px] pointer-events-none" />
+      <div className="absolute bottom-0 right-0 w-[300px] sm:w-[600px] h-[300px] sm:h-[600px] bg-indigo-500/10 rounded-full blur-[100px] sm:blur-[140px] pointer-events-none" />
 
       <DashboardHeader logout={logout} />
 
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-8 relative z-10">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-8 relative z-10">
         {/* Welcome Banner */}
-        <section className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl shadow-2xl flex items-center justify-between">
+        <section className="bg-slate-900/60 backdrop-blur-xl sm:backdrop-blur-2xl border border-white/10 p-5 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl">
           <div>
-            <h1 className="text-3xl md:text-4xl font-black text-white tracking-tight">
-              Welcome back, <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">Manohar</span> 👋
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight leading-snug">
+              Welcome back,{" "}
+              <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
+                Manohar
+              </span>{" "}
+              👋
             </h1>
-            <p className="text-gray-400 mt-2 text-xs md:text-sm font-medium">
+            <p className="text-gray-400 mt-1.5 text-xs sm:text-sm font-medium">
               Ready for today's AI interview? Track your progress and improve every session.
             </p>
           </div>
         </section>
 
         {/* Latest Interview */}
-        <section className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl shadow-xl hover:border-cyan-500/30 transition-all duration-300">
+        <section className="bg-slate-900/60 backdrop-blur-xl sm:backdrop-blur-2xl border border-white/10 p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl hover:border-cyan-500/30 transition-all">
           <RecentInterview />
         </section>
 
-        {/* Statistics */}
+        {/* Statistics Cards */}
         <section>
           <StatsCards stats={stats} />
         </section>
 
-        {/* Quick Actions */}
+        {/* Quick Actions Grid */}
         <section className="space-y-4">
-          <h2 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
+          <h2 className="text-lg sm:text-xl font-extrabold text-white tracking-tight flex items-center gap-2">
             ⚡ Quick Actions
           </h2>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
             <QuickActionCard
               to="/resume-analyzer"
               icon={<FaChartBar />}
@@ -201,35 +208,35 @@ export default function Dashboard() {
         </section>
 
         {/* Analytics & Recent Activity */}
-        <section className="grid lg:grid-cols-2 gap-6">
-          <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl shadow-xl hover:border-cyan-500/30 transition-all">
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
+          <div className="bg-slate-900/60 backdrop-blur-xl sm:backdrop-blur-2xl border border-white/10 p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl hover:border-cyan-500/30 transition-all overflow-hidden">
             <PerformanceChart data={chartData} />
           </div>
 
-          <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl shadow-xl space-y-5 hover:border-cyan-500/30 transition-all">
-            <h2 className="text-xl font-extrabold text-white flex items-center gap-2">
+          <div className="bg-slate-900/60 backdrop-blur-xl sm:backdrop-blur-2xl border border-white/10 p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl space-y-4 sm:space-y-5 hover:border-cyan-500/30 transition-all">
+            <h2 className="text-lg sm:text-xl font-extrabold text-white flex items-center gap-2">
               📜 Recent Activity
             </h2>
 
-            <div className="space-y-3">
-              {history.length > 0 ? (
-                history.slice(0, 5).map((item, index) => (
+            <div className="space-y-2.5 sm:space-y-3">
+              {recentHistory.length > 0 ? (
+                recentHistory.map((item, index) => (
                   <div
                     key={item.id || index}
-                    className="flex items-center justify-between p-3.5 bg-black/40 rounded-2xl border border-white/5 hover:border-white/10 transition-all"
+                    className="flex items-center justify-between p-3 sm:p-3.5 bg-black/40 rounded-xl sm:rounded-2xl border border-white/5 hover:border-white/10 transition-all gap-2"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-md shadow-cyan-400/50" />
-                      <div>
-                        <p className="font-bold text-white text-xs md:text-sm">
+                    <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                      <div className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-cyan-400 animate-pulse shrink-0 shadow-md shadow-cyan-400/50" />
+                      <div className="min-w-0">
+                        <p className="font-bold text-white text-xs sm:text-sm truncate">
                           {item.role || "Interview"} Completed
                         </p>
-                        <p className="text-[11px] text-gray-400">
+                        <p className="text-[10px] sm:text-[11px] text-gray-400">
                           {item.created_at ? new Date(item.created_at).toLocaleDateString() : "Recent"}
                         </p>
                       </div>
                     </div>
-                    <span className="text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-3 py-1 rounded-full border border-cyan-500/20">
+                    <span className="text-[10px] sm:text-[11px] font-bold text-cyan-400 bg-cyan-500/10 px-2.5 sm:px-3 py-1 rounded-full border border-cyan-500/20 shrink-0">
                       Score: {Math.round((item.average_score || item.overall_score || 0) * 10)}%
                     </span>
                   </div>
@@ -244,16 +251,16 @@ export default function Dashboard() {
         </section>
 
         {/* Interview History */}
-        <section className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl shadow-xl hover:border-cyan-500/30 transition-all">
+        <section className="bg-slate-900/60 backdrop-blur-xl sm:backdrop-blur-2xl border border-white/10 p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl hover:border-cyan-500/30 transition-all overflow-x-auto">
           <InterviewHistory />
         </section>
 
         {/* Bottom Widgets */}
-        <section className="grid lg:grid-cols-2 gap-6">
-          <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl shadow-xl hover:border-cyan-500/30 transition-all">
+        <section className="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
+          <div className="bg-slate-900/60 backdrop-blur-xl sm:backdrop-blur-2xl border border-white/10 p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl hover:border-cyan-500/30 transition-all">
             <AIInsights />
           </div>
-          <div className="bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl shadow-xl hover:border-cyan-500/30 transition-all">
+          <div className="bg-slate-900/60 backdrop-blur-xl sm:backdrop-blur-2xl border border-white/10 p-4 sm:p-6 rounded-2xl sm:rounded-3xl shadow-xl hover:border-cyan-500/30 transition-all overflow-hidden">
             <SkillRadar />
           </div>
         </section>
