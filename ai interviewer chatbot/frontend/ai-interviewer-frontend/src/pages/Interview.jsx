@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import Confetti from "react-confetti";
 import api from "../api/api";
 import { createInterviewSession, submitSessionAnswer } from "../services/interviewServices";
@@ -19,6 +19,8 @@ import { useWindowSize } from "react-use";
 import { CircularProgressbar, buildStyles } from "react-circular-progressbar";
 
 import "react-circular-progressbar/dist/styles.css";
+
+const QUESTION_TIME = 120;
 
 export default function Interview() {
   // =========================
@@ -41,7 +43,6 @@ export default function Interview() {
   const [eyeContact, setEyeContact] = useState(100);
 
   // Timer
-  const QUESTION_TIME = 120;
   const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
 
   // Metrics
@@ -50,10 +51,12 @@ export default function Interview() {
   const [feedbacks, setFeedbacks] = useState({});
   const [, setFillerCounts] = useState({});
 
-  // Recording
+  // Recording & State
   const [recording, setRecording] = useState(false);
   const [interviewState, setInterviewState] = useState("idle");
+  const [animatedScore, setAnimatedScore] = useState(0);
 
+  // Mutable References (Clean Memory Management)
   const mediaRecorder = useRef(null);
   const microphoneStream = useRef(null);
   const audioChunks = useRef([]);
@@ -61,37 +64,58 @@ export default function Interview() {
   const webcamRef = useRef(null);
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
+  const activeUtteranceRef = useRef(null);
+  const evalTimeoutRef = useRef(null);
+  const scoreIntervalRef = useRef(null);
+
+  // State refs for access inside callbacks without triggering re-renders
+  const questionNumberRef = useRef(questionNumber);
+  questionNumberRef.current = questionNumber;
 
   // =========================
-  // Stop Recording with Resource Release
+  // Resource Release Handler
   // =========================
   const stopRecording = useCallback(() => {
+    // 1. Cleanup Speech Recognition
     if (recognitionRef.current) {
       recognitionRef.current.onend = null;
+      recognitionRef.current.onerror = null;
+      recognitionRef.current.onresult = null;
       try {
         recognitionRef.current.stop();
       } catch (e) {
-        // Ignore inactive state
+        /* Ignore inactive state */
       }
       recognitionRef.current = null;
     }
 
-    if (
-      mediaRecorder.current &&
-      mediaRecorder.current.state !== "inactive"
-    ) {
-      mediaRecorder.current.stop();
+    // 2. Cleanup MediaRecorder
+    if (mediaRecorder.current && mediaRecorder.current.state !== "inactive") {
+      try {
+        mediaRecorder.current.stop();
+      } catch (e) {
+        /* Ignore inactive state */
+      }
     }
 
-    if (window.speechSynthesis) {
+    // 3. Cancel Active Speech Utterance
+    if (activeUtteranceRef.current) {
+      activeUtteranceRef.current.onstart = null;
+      activeUtteranceRef.current.onend = null;
+      activeUtteranceRef.current.onerror = null;
+      activeUtteranceRef.current = null;
+    }
+    if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
     }
 
+    // 4. Close Audio Context
     if (audioContextRef.current && audioContextRef.current.state !== "closed") {
-      audioContextRef.current.close();
+      audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
 
+    // 5. Stop Mic Media Stream Tracks
     if (microphoneStream.current) {
       microphoneStream.current.getTracks().forEach((track) => track.stop());
       microphoneStream.current = null;
@@ -101,63 +125,18 @@ export default function Interview() {
     setRecording(false);
   }, []);
 
-  // Cleanup on unmount
+  // Cleanup timers & streams on unmount
   useEffect(() => {
     return () => {
       stopRecording();
+      if (evalTimeoutRef.current) clearTimeout(evalTimeoutRef.current);
+      if (scoreIntervalRef.current) clearInterval(scoreIntervalRef.current);
     };
   }, [stopRecording]);
 
-  // Speak Question
-  const speakQuestion = useCallback(() => {
-    if (!currentQuestionText || !window.speechSynthesis) return;
-
-    window.speechSynthesis.cancel();
-
-    const speech = new SpeechSynthesisUtterance(currentQuestionText);
-    speech.rate = 1;
-    speech.pitch = 1;
-    speech.volume = 1;
-
-    speech.onstart = () => {
-      setSpeaking(true);
-      setInterviewState("speaking");
-    };
-
-    speech.onend = () => {
-      setSpeaking(false);
-      setInterviewState((prev) => (prev === "recording" ? "listening" : "idle"));
-    };
-
-    window.speechSynthesis.speak(speech);
-  }, [currentQuestionText]);
-
-  // Timer Effect
-  useEffect(() => {
-    if (!interviewStarted || interviewCompleted || !currentQuestionText) return;
-
-    if (timeLeft <= 0) {
-      if (recording) {
-        stopRecording();
-      }
-      return;
-    }
-
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev <= 1 ? 0 : prev - 1));
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [
-    interviewStarted,
-    interviewCompleted,
-    currentQuestionText,
-    timeLeft,
-    recording,
-    stopRecording,
-  ]);
-
-  // Submit Answer Action
+  // =========================
+  // Evaluation Action
+  // =========================
   const evaluateAnswer = useCallback(
     async (answerOverride = null) => {
       try {
@@ -185,22 +164,17 @@ export default function Interview() {
           feedback_text: "Clear, concise, and structured answer.",
         });
 
+        const currentQNum = questionNumberRef.current;
         const currentScore = resData.evaluation.overall_score;
         const currentFeedback = resData.evaluation.feedback_text;
 
-        setScores((prev) => ({
-          ...prev,
-          [questionNumber]: currentScore,
-        }));
-
-        setFeedbacks((prev) => ({
-          ...prev,
-          [questionNumber]: currentFeedback,
-        }));
-
+        setScores((prev) => ({ ...prev, [currentQNum]: currentScore }));
+        setFeedbacks((prev) => ({ ...prev, [currentQNum]: currentFeedback }));
         setInterviewState("idle");
 
-        setTimeout(() => {
+        if (evalTimeoutRef.current) clearTimeout(evalTimeoutRef.current);
+
+        evalTimeoutRef.current = setTimeout(() => {
           if (resData.is_completed) {
             setInterviewCompleted(true);
             setInterviewStarted(false);
@@ -213,16 +187,20 @@ export default function Interview() {
           }
         }, 1500);
       } catch (err) {
-        console.error(err.response?.data || err);
+        console.error("Evaluation Error:", err.response?.data || err);
         setInterviewState("idle");
       }
     },
-    [sessionId, currentQuestionText, currentAnswer, questionNumber, QUESTION_TIME]
+    [sessionId, currentQuestionText, currentAnswer]
   );
 
-  // Start Audio Recording
+  // =========================
+  // Recording Action
+  // =========================
   const startRecording = useCallback(async () => {
     try {
+      stopRecording(); // Reset previous stream instances before initiating new ones
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const AudioContext = window.AudioContext || window.webkitAudioContext;
       const audioContext = new AudioContext();
@@ -246,6 +224,8 @@ export default function Interview() {
       };
 
       mediaRecorder.current.onstop = async () => {
+        if (audioChunks.current.length === 0) return;
+
         const audioBlob = new Blob(audioChunks.current, { type: "audio/webm" });
         const formData = new FormData();
         formData.append("file", audioBlob, "answer.webm");
@@ -254,27 +234,22 @@ export default function Interview() {
 
         try {
           const res = await api.post("/transcribe/whisper", formData, {
-            headers: {
-              "Content-Type": "multipart/form-data",
-            },
+            headers: { "Content-Type": "multipart/form-data" },
           });
 
           const transcript = res.data.text || "";
+          const activeQNum = questionNumberRef.current;
 
-          setTranscripts((prev) => ({
-            ...prev,
-            [questionNumber]: transcript,
-          }));
-
+          setTranscripts((prev) => ({ ...prev, [activeQNum]: transcript }));
           setFillerCounts((prev) => ({
             ...prev,
-            [questionNumber]: res.data.filler_word_count ?? 0,
+            [activeQNum]: res.data.filler_word_count ?? 0,
           }));
 
           setCurrentAnswer(transcript);
           await evaluateAnswer(transcript);
         } catch (err) {
-          console.error(err.response?.data || err);
+          console.error("Transcription Error:", err.response?.data || err);
           setInterviewState("idle");
         }
       };
@@ -304,20 +279,58 @@ export default function Interview() {
         recognitionRef.current.start();
       }
     } catch (err) {
-      console.error("Recording Error:", err);
+      console.error("Recording Start Error:", err);
+      stopRecording();
     }
-  }, [questionNumber, evaluateAnswer, stopRecording]);
+  }, [stopRecording, evaluateAnswer]);
 
-  // Question Speech Trigger
+  // Keep stable reference to startRecording for speech trigger
+  const startRecordingRef = useRef(startRecording);
+  startRecordingRef.current = startRecording;
+
+  // Speak Question Handler
+  const speakQuestion = useCallback(() => {
+    if (!currentQuestionText || typeof window === "undefined" || !window.speechSynthesis) return;
+
+    window.speechSynthesis.cancel();
+
+    const speech = new SpeechSynthesisUtterance(currentQuestionText);
+    speech.rate = 1;
+    speech.pitch = 1;
+    speech.volume = 1;
+    activeUtteranceRef.current = speech;
+
+    speech.onstart = () => {
+      setSpeaking(true);
+      setInterviewState("speaking");
+    };
+
+    speech.onend = () => {
+      setSpeaking(false);
+      setInterviewState((prev) => (prev === "recording" ? "listening" : "idle"));
+      activeUtteranceRef.current = null;
+    };
+
+    speech.onerror = () => {
+      setSpeaking(false);
+      setInterviewState("idle");
+      activeUtteranceRef.current = null;
+    };
+
+    window.speechSynthesis.speak(speech);
+  }, [currentQuestionText]);
+
+  // Question Speech Trigger Effect
   useEffect(() => {
     if (!currentQuestionText || !interviewStarted) return;
 
-    if (window.speechSynthesis) {
+    if (typeof window !== "undefined" && window.speechSynthesis) {
       window.speechSynthesis.cancel();
       const speech = new SpeechSynthesisUtterance(currentQuestionText);
       speech.rate = 1;
       speech.pitch = 1;
       speech.volume = 1;
+      activeUtteranceRef.current = speech;
 
       speech.onstart = () => {
         setSpeaking(true);
@@ -327,22 +340,56 @@ export default function Interview() {
       speech.onend = () => {
         setSpeaking(false);
         setInterviewState("listening");
-        startRecording();
+        activeUtteranceRef.current = null;
+        startRecordingRef.current();
+      };
+
+      speech.onerror = () => {
+        setSpeaking(false);
+        setInterviewState("idle");
+        activeUtteranceRef.current = null;
       };
 
       window.speechSynthesis.speak(speech);
     }
 
     return () => {
-      if (window.speechSynthesis) window.speechSynthesis.cancel();
+      if (typeof window !== "undefined" && window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
     };
-  }, [currentQuestionText, interviewStarted, startRecording]);
+  }, [currentQuestionText, interviewStarted]);
 
-  const formatTime = (seconds) => {
+  // Timer Effect
+  useEffect(() => {
+    if (!interviewStarted || interviewCompleted || !currentQuestionText) return;
+
+    if (timeLeft <= 0) {
+      if (recording) {
+        stopRecording();
+      }
+      return;
+    }
+
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [
+    interviewStarted,
+    interviewCompleted,
+    currentQuestionText,
+    timeLeft,
+    recording,
+    stopRecording,
+  ]);
+
+  const formatTime = useCallback((seconds) => {
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
-  };
+  }, []);
 
   const startInterview = async () => {
     try {
@@ -368,13 +415,16 @@ export default function Interview() {
       setInterviewCompleted(false);
       setInterviewState("speaking");
     } catch (err) {
-      console.error(err.response?.data || err);
+      console.error("Start Session Error:", err.response?.data || err);
       alert("Failed to create interview session.");
     }
   };
 
   const restartInterview = () => {
     stopRecording();
+    if (evalTimeoutRef.current) clearTimeout(evalTimeoutRef.current);
+    if (scoreIntervalRef.current) clearInterval(scoreIntervalRef.current);
+
     setSessionId(null);
     setQuestionNumber(1);
     setCurrentQuestionText("");
@@ -389,43 +439,44 @@ export default function Interview() {
     setInterviewState("idle");
   };
 
-  // Score Animation
-  const scoreValues = Object.values(scores);
-  const finalScore =
-    scoreValues.length > 0
-      ? (
-          scoreValues.reduce((total, score) => total + Number(score), 0) /
-          scoreValues.length
-        ).toFixed(2)
-      : "0.00";
+  // Score Calculation Optimizations
+  const finalScore = useMemo(() => {
+    const scoreValues = Object.values(scores);
+    if (scoreValues.length === 0) return "0.00";
+    const sum = scoreValues.reduce((total, score) => total + Number(score), 0);
+    return (sum / scoreValues.length).toFixed(2);
+  }, [scores]);
 
-  const [animatedScore, setAnimatedScore] = useState(0);
-
+  // Score Count-Up Animation
   useEffect(() => {
     if (!interviewCompleted) return;
 
     let current = 0;
     const target = Number(finalScore);
 
-    const timer = setInterval(() => {
-      current += 0.2;
+    if (scoreIntervalRef.current) clearInterval(scoreIntervalRef.current);
 
+    scoreIntervalRef.current = setInterval(() => {
+      current += 0.2;
       if (current >= target) {
         current = target;
-        clearInterval(timer);
+        clearInterval(scoreIntervalRef.current);
       }
-
       setAnimatedScore(current);
     }, 20);
 
-    return () => clearInterval(timer);
+    return () => {
+      if (scoreIntervalRef.current) clearInterval(scoreIntervalRef.current);
+    };
   }, [interviewCompleted, finalScore]);
 
+  // Speaking Speed Calculation
   const currentTranscript = transcripts[questionNumber] || "";
-  const wordCount = currentTranscript.trim().split(/\s+/).filter(Boolean).length;
-  const elapsedSeconds = QUESTION_TIME - timeLeft;
-  const speakingSpeed =
-    elapsedSeconds > 0 ? Math.round((wordCount / elapsedSeconds) * 60) : 0;
+  const speakingSpeed = useMemo(() => {
+    const wordCount = currentTranscript.trim().split(/\s+/).filter(Boolean).length;
+    const elapsedSeconds = QUESTION_TIME - timeLeft;
+    return elapsedSeconds > 0 ? Math.round((wordCount / elapsedSeconds) * 60) : 0;
+  }, [currentTranscript, timeLeft]);
 
   // Completed Screen
   if (interviewCompleted) {
@@ -459,7 +510,9 @@ export default function Interview() {
             <div className="text-6xl font-black bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
               {animatedScore.toFixed(2)}
             </div>
-            <p className="text-xs font-semibold text-gray-400 mt-1">Overall Score / 10</p>
+            <p className="text-xs font-semibold text-gray-400 mt-1">
+              Overall Score / 10
+            </p>
           </div>
 
           <div className="mt-6">
@@ -493,7 +546,7 @@ export default function Interview() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-black text-white">
-      {/* Dynamic Background Glows */}
+      {/* Background Glows */}
       <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -left-40 w-[500px] h-[500px] rounded-full bg-cyan-500/10 blur-[100px]"></div>
         <div className="absolute bottom-[-100px] right-[-100px] w-[500px] h-[500px] rounded-full bg-indigo-500/10 blur-[100px]"></div>
@@ -504,7 +557,6 @@ export default function Interview() {
         <div className="bg-slate-900/60 backdrop-blur-xl rounded-3xl p-5 shadow-xl mb-6 border border-white/10">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-4">
-              {/* AI Avatar Icon with Glow Effect */}
               <div className="relative group">
                 <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-cyan-500 to-blue-600 blur-md opacity-75 group-hover:opacity-100 transition duration-300 animate-pulse"></div>
                 <div className="relative w-12 h-12 rounded-2xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-700 flex items-center justify-center border border-white/20 shadow-lg overflow-hidden">
@@ -560,7 +612,9 @@ export default function Interview() {
 
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider block mb-1">Target Company</label>
+                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider block mb-1">
+                  Target Company
+                </label>
                 <select
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
@@ -575,7 +629,9 @@ export default function Interview() {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider block mb-1">Interview Round</label>
+                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider block mb-1">
+                  Interview Round
+                </label>
                 <select
                   value={round}
                   onChange={(e) => setRound(e.target.value)}
@@ -588,7 +644,9 @@ export default function Interview() {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider block mb-1">Role</label>
+                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider block mb-1">
+                  Role
+                </label>
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
@@ -602,7 +660,9 @@ export default function Interview() {
               </div>
 
               <div>
-                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider block mb-1">Difficulty</label>
+                <label className="text-xs font-bold text-gray-300 uppercase tracking-wider block mb-1">
+                  Difficulty
+                </label>
                 <select
                   value={difficulty}
                   onChange={(e) => setDifficulty(e.target.value)}
@@ -727,7 +787,9 @@ export default function Interview() {
                     {scores[questionNumber]} / 10
                   </p>
 
-                  <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider mt-3">Feedback</h3>
+                  <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider mt-3">
+                    Feedback
+                  </h3>
                   <p className="text-xs text-gray-300 leading-relaxed">
                     {feedbacks[questionNumber] || "No feedback available."}
                   </p>
