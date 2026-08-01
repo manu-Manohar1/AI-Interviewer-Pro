@@ -1,314 +1,89 @@
+import os
+import time
+import logging
+import google.generativeai as genai
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from typing import List
-import re
+from typing import List, Optional
 
 from app.deps import get_current_user
-from app.database import SessionLocal
-from app.models_resume import Resume
-from app.ai import generate_questions
 
+logger = logging.getLogger("app.questions")
 
 router = APIRouter(
     prefix="/questions",
     tags=["questions"],
 )
 
+# Configure Gemini Client Globally
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
 
-# ======================================================
-# Request Schema
-# ======================================================
 
 class QuestionRequest(BaseModel):
-    company: str
-    round: str
-    job_role: str
-    difficulty: str
-    count: int = Field(default=5, ge=1, le=10)
+    role: str = Field(..., min_length=1, max_length=100)
+    company: Optional[str] = Field(default="Google", max_length=100)
+    difficulty: Optional[str] = Field(default="Medium", max_length=50)
+    round_type: Optional[str] = Field(default="Technical", max_length=50)
 
 
-# ======================================================
-# Response Schema
-# ======================================================
-
-class QuestionItem(BaseModel):
-    type: str
-    question: str
-    difficulty: str
+class QuestionResponse(BaseModel):
+    questions: List[str]
 
 
-# ======================================================
-# Detect Question Type
-# ======================================================
-
-def detect_question_type(question: str) -> str:
-
-    text = question.lower()
-
-    hr_keywords = [
-        "tell me about yourself",
-        "introduce yourself",
-        "strength",
-        "weakness",
-        "leadership",
-        "team",
-        "conflict",
-        "challenge",
-        "career",
-        "motivation",
-        "goal",
-        "five years",
-        "why should",
-        "why do you",
-        "internship",
-    ]
-
-    if any(keyword in text for keyword in hr_keywords):
-        return "HR"
-
-    return "Technical"
-
-
-# ======================================================
-# Generate Questions
-# ======================================================
-
-@router.post(
-    "/generate",
-    response_model=List[QuestionItem],
-    status_code=status.HTTP_200_OK,
-)
-async def generate(
-    request: QuestionRequest,
+@router.post("/generate", response_model=QuestionResponse)
+async def generate_questions(
+    req: QuestionRequest,
     current_user=Depends(get_current_user),
 ):
+    """
+    Generates interview questions using Gemini API with input validation.
+    """
+    start_time = time.time()
+    user_id = getattr(current_user, "id", "unknown")
 
-    db = SessionLocal()
-
-    try:
-
-        print("QUESTION GENERATION USER ID:", current_user.id)
-        print("QUESTION GENERATION EMAIL:", current_user.email)
-        print("COMPANY:", request.company)
-        print("ROUND:", request.round)
-        print("ROLE:", request.job_role)
-        print("DIFFICULTY:", request.difficulty)
-
-        # ==========================================
-        # Get Latest Resume
-        # ==========================================
-
-        resume = (
-            db.query(Resume)
-            .filter(Resume.user_id == current_user.id)
-            .order_by(Resume.id.desc())
-            .first()
-        )
-
-        if resume is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Please upload your resume before starting the interview.",
-            )
-
-        resume_content = resume.content or ""
-
-        if not resume_content.strip():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Resume content is empty.",
-            )
-
-        # ==========================================
-        # AI Prompt
-        # ==========================================
-
-        prompt = f"""
-You are a Senior Interviewer at {request.company}.
-
-COMPANY:
-{request.company}
-
-INTERVIEW ROUND:
-{request.round}
-
-JOB ROLE:
-{request.job_role}
-
-DIFFICULTY:
-{request.difficulty}
-
-CANDIDATE RESUME:
-{resume_content}
-
-Generate EXACTLY {request.count} interview questions.
-
-GENERAL RULES:
-
-- Personalize questions using the candidate resume.
-- Match the interview style of {request.company}.
-- Match the interview round.
-- Match the difficulty.
-- Do NOT provide answers.
-- Return ONLY numbered questions.
-
-COMPANY STYLE:
-
-Google:
-Algorithms
-Data Structures
-Coding
-Problem Solving
-
-Amazon:
-Leadership Principles
-Ownership
-Customer Obsession
-Backend APIs
-System Design
-
-Microsoft:
-Coding
-OOP
-Design Patterns
-
-Meta:
-Coding
-Distributed Systems
-Scalability
-
-Apple:
-Optimization
-Performance
-
-Netflix:
-Ownership
-High Performance
-
-OpenAI:
-Python
-Machine Learning
-LLMs
-Deep Learning
-Generative AI
-
-TCS / Infosys / Wipro:
-Aptitude
-SQL
-OOP
-HR
-
-ROUND STYLE:
-
-Online Assessment:
-Coding
-MCQs
-Aptitude
-
-Technical:
-Programming
-Core Subjects
-
-System Design:
-REST APIs
-Databases
-Microservices
-Caching
-Architecture
-
-Behavioral:
-Leadership
-Conflict Resolution
-Communication
-
-HR:
-Introduction
-Strengths
-Weaknesses
-Career Goals
-
-Return ONLY numbered questions.
-
-Example:
-
-1. Question
-2. Question
-3. Question
-4. Question
-5. Question
-"""# ==========================================
-        # Generate Using AI
-        # ==========================================
-
-        result = generate_questions(prompt)
-
-        print("RAW AI QUESTION RESULT:")
-        print(result)
-
-        if not result:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="AI returned an empty response.",
-            )
-
-        # ==========================================
-        # Parse AI Questions
-        # ==========================================
-
-        questions = []
-
-        for raw_line in result.splitlines():
-
-            line = raw_line.strip()
-
-            if not line:
-                continue
-
-            match = re.match(
-                r"^\d+[\.\)]\s*(.+)$",
-                line,
-            )
-
-            if not match:
-                continue
-
-            question_text = match.group(1).strip()
-
-            if not question_text:
-                continue
-
-            questions.append(
-                QuestionItem(
-                    type=detect_question_type(question_text),
-                    question=question_text,
-                    difficulty=request.difficulty,
-                )
-            )
-
-        if len(questions) == 0:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="AI generated questions but parsing failed.",
-            )
-
-        questions = questions[: request.count]
-
-        print(f"SUCCESSFULLY GENERATED {len(questions)} QUESTIONS")
-
-        return questions
-
-    except HTTPException:
-        raise
-
-    except Exception as exc:
-
-        print("QUESTION GENERATION ERROR:")
-        print(repr(exc))
-
+    if not GEMINI_API_KEY:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Question generation failed: {str(exc)}",
+            detail="Gemini API key is not configured.",
         )
 
-    finally:
-        db.close()
+    prompt = (
+        f"Generate 5 distinct {req.difficulty} {req.round_type} interview questions "
+        f"for a {req.role} position at {req.company}. "
+        f"Return ONLY a plain list with one question per line, without numbers or bullet points."
+    )
+
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        response = model.generate_content(prompt)
+
+        raw_text = response.text or ""
+        questions = [
+            line.strip().lstrip("0123456789.-* ")
+            for line in raw_text.split("\n")
+            if line.strip()
+        ]
+
+        # Ensure fallback defaults if AI output is empty
+        if not questions:
+            questions = [
+                f"Explain a challenging {req.role} project you built.",
+                f"How do you handle system trade-offs at {req.company}?",
+                "Describe a time you solved a complex production bug.",
+                "How do you optimize code performance and memory usage?",
+                "Explain core data structures you use daily."
+            ]
+
+        elapsed = time.time() - start_time
+        logger.info(f"Generated {len(questions)} questions for user {user_id} in {elapsed:.2f}s")
+
+        return {"questions": questions[:5]}
+
+    except Exception as e:
+        logger.error(f"Gemini Question Generation failed for user {user_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate questions. Please try again.",
+        )
