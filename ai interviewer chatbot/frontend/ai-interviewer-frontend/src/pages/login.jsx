@@ -34,12 +34,12 @@ export default function Login() {
     setOauthLoading(provider);
     setError("");
 
-    // Get API Base URL from Axios instance or environment
-    const API_BASE_URL = api.defaults.baseURL || "http://localhost:8000/api/v1";
+    // Safely retrieve and normalize base URL without trailing slashes
+    const rawBaseUrl = api.defaults.baseURL || "http://localhost:8000/api/v1";
+    const cleanBaseUrl = rawBaseUrl.replace(/\/+$/, "");
 
-    // Direct user to your backend OAuth authorization URL
-    // The backend handles state, consent, and redirects back to React with the JWT token
-    window.location.href = `${API_BASE_URL}/auth/${provider}`;
+    // Direct user to backend OAuth authorization endpoint
+    window.location.href = `${cleanBaseUrl}/auth/${provider}`;
   };
 
   const handleSubmit = async (e) => {
@@ -50,20 +50,24 @@ export default function Login() {
     try {
       let res;
 
-      // First attempt standard JSON login
+      // 1. Attempt standard JSON authentication
       try {
         res = await api.post("/auth/login", { email, password });
       } catch (jsonErr) {
-        // Fallback for OAuth2 Password Bearer endpoints expecting x-www-form-urlencoded
-        const params = new URLSearchParams();
-        params.append("username", email);
-        params.append("password", password);
+        // If server returns 404/405 or requires URL-encoded form data (OAuth2 Password Bearer)
+        if (jsonErr.response?.status === 422 || jsonErr.response?.status === 405) {
+          const params = new URLSearchParams();
+          params.append("username", email);
+          params.append("password", password);
 
-        res = await api.post("/auth/login", params, {
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-        });
+          res = await api.post("/auth/login", params, {
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+          });
+        } else {
+          throw jsonErr;
+        }
       }
 
       if (res.data?.access_token || res.data?.token) {
@@ -84,7 +88,7 @@ export default function Login() {
       } else if (typeof detail === "object" && detail !== null) {
         setError(detail.msg || "An unexpected error occurred.");
       } else {
-        setError("Invalid email or password.");
+        setError("Invalid email or password. Please try again.");
       }
     } finally {
       setLoading(false);
