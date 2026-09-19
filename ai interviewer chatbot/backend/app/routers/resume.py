@@ -1,7 +1,6 @@
 import os
 import time
 import logging
-import google.generativeai as genai
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
 from typing import Dict, Any
 
@@ -16,10 +15,6 @@ router = APIRouter(
 
 MAX_RESUME_SIZE = 5 * 1024 * 1024  # 5 MB Limit
 ALLOWED_RESUME_EXTENSIONS = {".pdf", ".docx"}
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
 
 
 @router.post("/analyze")
