@@ -35,7 +35,10 @@ export async function loadFaceModel() {
       const detectorConfig = {
         runtime: "tfjs",
         maxFaces: 1,
-        refineLandmarks: true,
+        // EyeContactDetector only reads noseTip/leftEye/rightEye keypoints —
+        // refineLandmarks adds iris/lip sub-model inference we never use,
+        // roughly doubling per-frame cost for no benefit.
+        refineLandmarks: false,
       };
 
       detector = await faceLandmarksDetection.createDetector(model, detectorConfig);
