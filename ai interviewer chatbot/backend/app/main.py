@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -28,19 +27,15 @@ logger = logging.getLogger("app.main")
 async def lifespan(app: FastAPI):
     logger.info("Application starting up...")
 
-    # Preload the Whisper model now, at boot, instead of on the first
-    # /transcribe/whisper request. Without this, whoever records the first
-    # answer in any session pays the multi-second model-load cost on top of
-    # actual transcription time. Loading is CPU-bound, so run it off the
-    # event loop; failure here just falls back to the old lazy-load behavior.
-    try:
-        await asyncio.to_thread(transcribe.get_model)
-        logger.info("Whisper model preloaded successfully.")
-    except Exception:
-        logger.exception(
-            "Whisper preload failed; it will load lazily on first request instead."
-        )
-
+    # NOTE: We deliberately do NOT preload the Whisper model here.
+    # It was tried (eager-load at boot) to avoid a slow first
+    # transcription request, but on Render's 512Mi tier the combined
+    # memory of FastAPI + torch + the mediapipe/opencv import chain
+    # (from eye_contact.py) plus the loaded Whisper model crosses the
+    # memory limit during startup, and the whole service gets OOM-killed
+    # before it can bind a port -- a full outage, which is worse than a
+    # few extra seconds on someone's first recorded answer. Whisper loads
+    # lazily on first use in transcribe.py's get_model() instead.
     yield
     logger.info("Application shutting down...")
 
