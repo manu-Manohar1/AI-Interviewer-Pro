@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
@@ -26,6 +27,20 @@ logger = logging.getLogger("app.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Application starting up...")
+
+    # Preload the Whisper model now, at boot, instead of on the first
+    # /transcribe/whisper request. Without this, whoever records the first
+    # answer in any session pays the multi-second model-load cost on top of
+    # actual transcription time. Loading is CPU-bound, so run it off the
+    # event loop; failure here just falls back to the old lazy-load behavior.
+    try:
+        await asyncio.to_thread(transcribe.get_model)
+        logger.info("Whisper model preloaded successfully.")
+    except Exception:
+        logger.exception(
+            "Whisper preload failed; it will load lazily on first request instead."
+        )
+
     yield
     logger.info("Application shutting down...")
 
