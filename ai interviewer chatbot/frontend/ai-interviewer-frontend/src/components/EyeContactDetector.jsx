@@ -110,7 +110,7 @@ export default function EyeContactDetector({
           } catch (err) {
             console.error("Eye detection estimation error:", err);
           }
-        }, 800);
+        }, 1200);
       } catch (err) {
         console.error("Failed to load face model:", err);
         if (mounted) {
