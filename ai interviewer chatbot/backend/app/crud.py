@@ -18,9 +18,6 @@ def get_user_by_email(db: Session, email: str):
 
 
 def create_user(db: Session, user: schemas.UserCreate):
-    print("PASSWORD:", repr(user.password))
-    print("PASSWORD LENGTH:", len(user.password))
-
     hashed = pwd_context.hash(user.password)
 
     db_user = models.User(
