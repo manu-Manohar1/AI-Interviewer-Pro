@@ -3,8 +3,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from jose import jwt
 
-# Read from environment variables for production security on Render
-SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-me")
+# SECRET_KEY has no fallback on purpose: a JWT signing key that defaults to a
+# value visible in source control lets anyone forge a valid token for any
+# user. Set SECRET_KEY in the environment (Render dashboard, or locally in
+# .env) or the app will refuse to start.
+SECRET_KEY = os.environ["SECRET_KEY"]
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "1440"))
 
