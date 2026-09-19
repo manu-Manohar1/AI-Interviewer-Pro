@@ -27,10 +27,6 @@ def login(
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: Session = Depends(get_db),
 ):
-    print("Username:", form_data.username)
-    print("Password:", form_data.password)
-    print("Password length:", len(form_data.password))
-
     db_user = crud.get_user_by_email(db, form_data.username)
 
     if db_user is None:
