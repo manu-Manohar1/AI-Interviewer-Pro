@@ -1,10 +1,15 @@
+import io
 import os
 import time
 import logging
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, status
-from typing import Dict, Any
+from fastapi import APIRouter, UploadFile, File, Form, Depends, HTTPException, status
+from typing import Any, Dict, Optional
+
+import pdfplumber
+from docx import Document
 
 from app.deps import get_current_user
+from app.resume_analyzer import analyze_resume as run_resume_analysis
 
 logger = logging.getLogger("app.resume")
 
@@ -17,13 +22,32 @@ MAX_RESUME_SIZE = 5 * 1024 * 1024  # 5 MB Limit
 ALLOWED_RESUME_EXTENSIONS = {".pdf", ".docx"}
 
 
+def _extract_text(contents: bytes, ext: str) -> str:
+    if ext == ".pdf":
+        text_parts = []
+        with pdfplumber.open(io.BytesIO(contents)) as pdf:
+            for page in pdf.pages:
+                text_parts.append(page.extract_text() or "")
+        return "\n".join(text_parts)
+
+    if ext == ".docx":
+        doc = Document(io.BytesIO(contents))
+        return "\n".join(p.text for p in doc.paragraphs)
+
+    return ""
+
+
 @router.post("/analyze")
 async def analyze_resume(
     resume: UploadFile = File(...),
+    role: Optional[str] = Form(default="Software Engineer"),
     current_user=Depends(get_current_user),
 ) -> Dict[str, Any]:
     """
-    Analyzes resume uploaded files (PDF/DOCX max 5MB) with automatic safety fallbacks.
+    Extracts text from an uploaded resume (PDF/DOCX, max 5MB) and runs it
+    through the real rule-based analyzer in app/resume_analyzer.py --
+    skill matching, ATS scoring, and recommendations based on the actual
+    resume content, not a fixed canned response.
     """
     start_time = time.time()
     user_id = getattr(current_user, "id", "unknown")
@@ -48,30 +72,45 @@ async def analyze_resume(
     await resume.close()
 
     try:
-        # High-performance structured fallback return if AI processing is unavailable
-        fallback_result = {
-            "score": 84,
-            "keywordMatch": 78,
-            "strengths": [
-                "Strong technical project descriptions with modern frameworks",
-                "Relevant Python, FastAPI, and Database keywords present",
-                "Clean layout with clear contact & skill hierarchy"
-            ],
-            "weaknesses": [
-                "Missing metric-driven outcome figures in recent project history",
-                "No direct links to live GitHub repositories or production demos"
-            ],
-            "missingSkills": ["Docker", "Kubernetes", "System Design", "CI/CD Pipeline"],
-            "suggestions": "Quantify project achievements with metrics (e.g., 'Improved inference speed by 24%'). Add system design keywords."
+        text = _extract_text(contents, ext)
+    except Exception as e:
+        logger.error(f"Resume text extraction failed for user {user_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Could not read this file. Please make sure it's a valid, non-corrupted PDF or DOCX.",
+        )
+
+    if not text or not text.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No readable text found in this resume. If it's a scanned image, "
+                   "try a text-based PDF or DOCX instead.",
+        )
+
+    try:
+        analysis = run_resume_analysis(text, role or "Software Engineer")
+
+        # Map the analyzer's field names onto what the frontend expects
+        # (ResumeAnalyzer.jsx reads .score, .strengths, .missingSkills, .suggestions).
+        result = {
+            "score": analysis["overall_score"],
+            "keywordMatch": analysis["ats_score"],
+            "strengths": analysis["strengths"] or ["No strong keyword matches detected yet."],
+            "weaknesses": analysis["weaknesses"] or [],
+            "missingSkills": analysis["missing_skills"],
+            "suggestions": " ".join(analysis["recommendations"]) if isinstance(analysis["recommendations"], list) else (analysis["recommendations"] or ""),
+            "skillsFound": analysis["skills_found"],
+            "projectsDetected": analysis["projects_detected"],
+            "certificationsDetected": analysis["certifications_detected"],
         }
 
         elapsed = time.time() - start_time
         logger.info(f"Resume analysis completed for user {user_id} in {elapsed:.2f}s")
-        return fallback_result
+        return result
 
     except Exception as e:
         logger.error(f"Resume analysis error for user {user_id}: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error processing resume.",
+            detail="Error analyzing resume.",
         )
