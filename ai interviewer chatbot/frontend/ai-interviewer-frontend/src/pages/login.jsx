@@ -4,22 +4,27 @@ const handleSubmit = async (e) => {
   setError("");
 
   try {
-    const formData = new URLSearchParams();
-    formData.append("username", email);
-    formData.append("password", password);
-
-    const res = await api.post("/auth/login", formData, {
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
+    const res = await api.post("/auth/login", {
+      email: email.trim(),
+      password,
     });
 
-    localStorage.setItem("token", res.data.access_token);
-    navigate("/dashboard", { replace: true });
+    const token = res.data.access_token || res.data.token;
 
+    if (!token) {
+      throw new Error("Token not found");
+    }
+
+    localStorage.setItem("token", token);
+    navigate("/dashboard");
   } catch (err) {
     console.error(err);
-    setError(err.response?.data?.detail || "Invalid email or password");
+
+    if (err.response?.data?.detail) {
+      setError(err.response.data.detail);
+    } else {
+      setError("Invalid email or password.");
+    }
   } finally {
     setLoading(false);
   }
