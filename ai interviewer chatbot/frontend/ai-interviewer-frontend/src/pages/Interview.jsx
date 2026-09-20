@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import Confetti from "react-confetti";
 import api from "../api/api";
 import { createInterviewSession, submitSessionAnswer } from "../services/interviewServices";
@@ -51,10 +51,12 @@ export default function Interview() {
   const [feedbacks, setFeedbacks] = useState({});
   const [, setFillerCounts] = useState({});
 
-  // Recording & State
+  // Recording & System State
   const [recording, setRecording] = useState(false);
   const [interviewState, setInterviewState] = useState("idle");
   const [animatedScore, setAnimatedScore] = useState(0);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
 
   // Mutable References (Clean Memory Management)
   const mediaRecorder = useRef(null);
@@ -73,32 +75,44 @@ export default function Interview() {
   questionNumberRef.current = questionNumber;
 
   // =========================
+  // Device Permissions Check
+  // =========================
+  useEffect(() => {
+    const requestPermissions = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        // Stop tracks immediately, LiveCamera component will handle its own active stream
+        stream.getTracks().forEach(track => track.stop());
+        setPermissionsGranted(true);
+        setErrorMsg("");
+      } catch (err) {
+        setPermissionsGranted(false);
+        setErrorMsg("Camera and Microphone permissions are required to start the interview.");
+      }
+    };
+    requestPermissions();
+  }, []);
+
+  // =========================
   // Resource Release Handler
   // =========================
   const stopRecording = useCallback(() => {
-    // 1. Cleanup Speech Recognition
     if (recognitionRef.current) {
       recognitionRef.current.onend = null;
       recognitionRef.current.onerror = null;
       recognitionRef.current.onresult = null;
       try {
         recognitionRef.current.stop();
-      } catch (e) {
-        /* Ignore inactive state */
-      }
+      } catch (e) {}
       recognitionRef.current = null;
     }
 
-    // 2. Cleanup MediaRecorder
     if (mediaRecorder.current && mediaRecorder.current.state !== "inactive") {
       try {
         mediaRecorder.current.stop();
-      } catch (e) {
-        /* Ignore inactive state */
-      }
+      } catch (e) {}
     }
 
-    // 3. Cancel Active Speech Utterance
     if (activeUtteranceRef.current) {
       activeUtteranceRef.current.onstart = null;
       activeUtteranceRef.current.onend = null;
@@ -109,13 +123,11 @@ export default function Interview() {
       window.speechSynthesis.cancel();
     }
 
-    // 4. Close Audio Context
     if (audioContextRef.current && audioContextRef.current.state !== "closed") {
       audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
 
-    // 5. Stop Mic Media Stream Tracks
     if (microphoneStream.current) {
       microphoneStream.current.getTracks().forEach((track) => track.stop());
       microphoneStream.current = null;
@@ -125,7 +137,6 @@ export default function Interview() {
     setRecording(false);
   }, []);
 
-  // Cleanup timers & streams on unmount
   useEffect(() => {
     return () => {
       stopRecording();
@@ -199,7 +210,7 @@ export default function Interview() {
   // =========================
   const startRecording = useCallback(async () => {
     try {
-      stopRecording(); // Reset previous stream instances before initiating new ones
+      stopRecording();
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -284,11 +295,9 @@ export default function Interview() {
     }
   }, [stopRecording, evaluateAnswer]);
 
-  // Keep stable reference to startRecording for speech trigger
   const startRecordingRef = useRef(startRecording);
   startRecordingRef.current = startRecording;
 
-  // Speak Question Handler
   const speakQuestion = useCallback(() => {
     if (!currentQuestionText || typeof window === "undefined" || !window.speechSynthesis) return;
 
@@ -320,7 +329,6 @@ export default function Interview() {
     window.speechSynthesis.speak(speech);
   }, [currentQuestionText]);
 
-  // Question Speech Trigger Effect
   useEffect(() => {
     if (!currentQuestionText || !interviewStarted) return;
 
@@ -360,7 +368,6 @@ export default function Interview() {
     };
   }, [currentQuestionText, interviewStarted]);
 
-  // Timer Effect
   useEffect(() => {
     if (!interviewStarted || interviewCompleted || !currentQuestionText) return;
 
@@ -439,7 +446,6 @@ export default function Interview() {
     setInterviewState("idle");
   };
 
-  // Score Calculation Optimizations
   const finalScore = useMemo(() => {
     const scoreValues = Object.values(scores);
     if (scoreValues.length === 0) return "0.00";
@@ -447,7 +453,6 @@ export default function Interview() {
     return (sum / scoreValues.length).toFixed(2);
   }, [scores]);
 
-  // Score Count-Up Animation
   useEffect(() => {
     if (!interviewCompleted) return;
 
@@ -470,7 +475,6 @@ export default function Interview() {
     };
   }, [interviewCompleted, finalScore]);
 
-  // Speaking Speed Calculation
   const currentTranscript = transcripts[questionNumber] || "";
   const speakingSpeed = useMemo(() => {
     const wordCount = currentTranscript.trim().split(/\s+/).filter(Boolean).length;
@@ -478,7 +482,6 @@ export default function Interview() {
     return elapsedSeconds > 0 ? Math.round((wordCount / elapsedSeconds) * 60) : 0;
   }, [currentTranscript, timeLeft]);
 
-  // Completed Screen
   if (interviewCompleted) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-indigo-950 to-black relative overflow-hidden">
@@ -546,14 +549,12 @@ export default function Interview() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-br from-slate-950 via-indigo-950 to-black text-white">
-      {/* Background Glows */}
       <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -left-40 w-[500px] h-[500px] rounded-full bg-cyan-500/10 blur-[100px]"></div>
         <div className="absolute bottom-[-100px] right-[-100px] w-[500px] h-[500px] rounded-full bg-indigo-500/10 blur-[100px]"></div>
       </div>
 
       <div className="max-w-[1850px] mx-auto px-6 py-6">
-        {/* Header Banner */}
         <div className="bg-slate-900/60 backdrop-blur-xl rounded-3xl p-5 shadow-xl mb-6 border border-white/10">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-4">
@@ -603,12 +604,17 @@ export default function Interview() {
           </div>
         </div>
 
-        {/* Setup Form vs Live Interview Grid */}
         {!interviewStarted ? (
           <div className="max-w-2xl mx-auto bg-slate-900/60 backdrop-blur-xl rounded-3xl border border-white/10 shadow-2xl p-8 space-y-6 transform-gpu">
             <h2 className="text-2xl font-bold text-white tracking-tight">
               Start Practice Session
             </h2>
+
+            {errorMsg && (
+              <div className="bg-red-500/20 border border-red-500/50 text-red-400 p-3 rounded-xl text-sm font-semibold text-center">
+                {errorMsg}
+              </div>
+            )}
 
             <div className="space-y-4">
               <div>
@@ -677,9 +683,14 @@ export default function Interview() {
 
             <button
               onClick={startInterview}
-              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm shadow-lg shadow-cyan-500/20 transition-all duration-200 active:scale-[0.99]"
+              disabled={!permissionsGranted}
+              className={`w-full py-3.5 rounded-xl font-bold text-sm shadow-lg transition-all duration-200 ${
+                permissionsGranted
+                  ? "bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-cyan-500/20 active:scale-[0.99]"
+                  : "bg-gray-700 text-gray-400 cursor-not-allowed border border-gray-600"
+              }`}
             >
-              🚀 Start AI Interview
+              {permissionsGranted ? "🚀 Start AI Interview" : "🔒 Grant Camera/Mic Access to Start"}
             </button>
           </div>
         ) : (
