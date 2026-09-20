@@ -9,6 +9,8 @@ export default function ResumeUpload() {
 
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [analysis, setAnalysis] = useState(null);
 
   const logout = () => {
     localStorage.removeItem("token");
@@ -19,28 +21,34 @@ export default function ResumeUpload() {
     e.preventDefault();
 
     if (!file) {
-      alert("Please select a resume.");
+      setError("Please select a resume file before uploading.");
       return;
     }
 
     try {
       setLoading(true);
+      setError("");
+      setAnalysis(null);
+      
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await api.post("/resume/upload", formData, {
+      // Using the correct analysis endpoint
+      const response = await api.post("/api/v1/resume/analyze", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
       });
 
-      console.log(response.data);
-      alert("Resume uploaded successfully!");
-      navigate("/questions");
-    } catch (error) {
-      console.error("Upload error:", error);
-      alert("Resume upload failed.");
+      // Extract real analysis to prevent [object Object] error
+      setAnalysis(response.data.analysis_result || JSON.stringify(response.data, null, 2));
+      
+    } catch (err) {
+      console.error("Upload error:", err);
+      // Replace generic errors with readable messages from the backend
+      setError(err.response?.data?.detail || "Resume upload failed. Please try again.");
     } finally {
+      // Prevents infinite loading states
       setLoading(false);
     }
   };
@@ -246,6 +254,34 @@ export default function ResumeUpload() {
                 ✓ Attached: {file.name}
               </p>
             )}
+
+            {/* Error Display */}
+            {error && (
+              <div className="mt-4 p-3 bg-red-500/20 border border-red-500/50 rounded-xl text-red-400 text-sm font-semibold">
+                {error}
+              </div>
+            )}
+
+            {/* Analysis Display */}
+            {analysis && (
+              <div className="mt-4 p-5 bg-slate-800/80 border border-cyan-500/30 rounded-xl">
+                <h3 className="font-semibold text-cyan-400 mb-3 flex items-center gap-2">
+                  📊 ATS Evaluation & Analysis
+                </h3>
+                <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
+                  {analysis}
+                </p>
+                <div className="mt-5 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => navigate("/questions")}
+                    className="px-6 py-2 bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 rounded-lg text-sm font-bold hover:bg-emerald-500/30 transition-all"
+                  >
+                    Proceed to Practice →
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Actions */}
@@ -258,13 +294,16 @@ export default function ResumeUpload() {
               ← Back to Dashboard
             </button>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm shadow-lg shadow-cyan-500/20 transition-all disabled:opacity-50"
-            >
-              {loading ? "Uploading Resume..." : "Upload & Continue →"}
-            </button>
+            {/* Hide the upload button once analysis is successful so the user proceeds to practice instead */}
+            {!analysis && (
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm shadow-lg shadow-cyan-500/20 transition-all disabled:opacity-50"
+              >
+                {loading ? "Analyzing Resume..." : "Upload & Analyze →"}
+              </button>
+            )}
           </div>
         </form>
       </main>
