@@ -6,7 +6,6 @@ from pydantic import BaseModel
 # --- REQUEST SCHEMAS ---
 
 class SessionCreateRequest(BaseModel):
-    user_id: Optional[int] = 1
     role: str
     company: Optional[str] = None
     difficulty: Optional[str] = "Medium"
@@ -14,16 +13,8 @@ class SessionCreateRequest(BaseModel):
 
 
 class AnswerSubmitRequest(BaseModel):
-    user_id: int
     question: str
     answer: str
-    technical_score: float
-    communication_score: float
-    confidence_score: float
-    relevance_score: float
-    grammar_score: float
-    overall_score: float
-    feedback_text: str
 
 
 # --- RESPONSE SCHEMAS ---
