@@ -1,7 +1,9 @@
 import api from "../api/api";
 
 /**
- * STEP 1: Create new session & receive Question 1
+ * STEP 1: Create new session & receive Question 1.
+ * The backend derives the owner from the logged-in user's token -- it
+ * never accepts a user_id from the client.
  */
 export const createInterviewSession = async (sessionData) => {
   const response = await api.post("/session/create", {
@@ -14,28 +16,28 @@ export const createInterviewSession = async (sessionData) => {
 };
 
 /**
- * STEP 2: Submit current question's answer & receive feedback + next question
+ * STEP 2: Submit current question's answer & receive feedback + next question.
+ *
+ * We only ever send the question and the answer text. Scores are computed
+ * server-side (app/scoring.py, run inside routers/session.py) from the
+ * actual answer content -- they are never supplied by the client. Sending
+ * score fields here would do nothing (the backend ignores anything besides
+ * question/answer), so we don't pretend to compute them client-side.
  */
 export const submitSessionAnswer = async (sessionId, answerPayload) => {
   const response = await api.post(`/session/${sessionId}/answer`, {
-    user_id: answerPayload.user_id || 1,
     question: answerPayload.question,
     answer: answerPayload.answer,
-    technical_score: answerPayload.technical_score ?? 8.5,
-    communication_score: answerPayload.communication_score ?? 8.0,
-    confidence_score: answerPayload.confidence_score ?? 8.0,
-    relevance_score: answerPayload.relevance_score ?? 8.5,
-    grammar_score: answerPayload.grammar_score ?? 9.0,
-    overall_score: answerPayload.overall_score ?? 8.5,
-    feedback_text: answerPayload.feedback_text || "Good response.",
   });
   return response.data;
 };
 
 /**
- * STEP 3: Fetch all past sessions for a user
+ * STEP 3: Fetch all past sessions for the current user.
+ * userId must be the logged-in user's own id (the backend 403s otherwise) --
+ * get it from /auth/me, never hardcode it.
  */
-export const getUserSessions = async (userId = 1) => {
+export const getUserSessions = async (userId) => {
   const response = await api.get(`/session/user/${userId}`);
   return response.data;
 };
