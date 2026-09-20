@@ -3,14 +3,15 @@ import logging
 from datetime import datetime, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from google import genai
 
 from app.database import get_db
-from app.models import User
+from app.deps import get_current_user
 from app.models_interview import InterviewResult
 from app.models_session import InterviewSession
+from app.scoring import calculate_scores
 from app.schemas.session import (
     AnswerSubmissionResponse,
     AnswerSubmitRequest,
@@ -58,15 +59,38 @@ def generate_session_question(role: str, company: str, difficulty: str, excluded
         return f"Describe a time you solved a complex issue as a {role}."
 
 
+def _get_owned_session(db: Session, session_id: int, current_user) -> InterviewSession:
+    """Fetch a session and confirm it belongs to the current user. 404s either way
+    (not found vs. not yours) so we don't leak which session IDs exist to other users."""
+    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not session or session.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Interview session not found.",
+        )
+    return session
+
+
 @router.get("/user/{user_id}", response_model=List[SessionResponse])
 def get_user_sessions(
     user_id: int,
-    db: Session = Depends(get_db)
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
+    if user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view this user's sessions.",
+        )
+
     sessions = (
         db.query(InterviewSession)
-        .filter(InterviewSession.user_id == user_id)
+        .filter(InterviewSession.user_id == current_user.id)
         .order_by(InterviewSession.created_at.desc())
+        .offset(offset)
+        .limit(limit)
         .all()
     )
     return sessions
@@ -75,23 +99,11 @@ def get_user_sessions(
 @router.post("/create", response_model=SessionStartResponse, status_code=status.HTTP_201_CREATED)
 def create_interview_session(
     payload: SessionCreateRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    target_user_id = payload.user_id if payload.user_id is not None else 1
-
-    user = db.query(User).filter(User.id == target_user_id).first()
-    if not user:
-        user = User(
-            id=target_user_id,
-            email=f"user{target_user_id}@example.com",
-            name="Demo User",
-            hashed_password="demo_password_hash",
-        )
-        db.add(user)
-        db.commit()
-
     new_session = InterviewSession(
-        user_id=target_user_id,
+        user_id=current_user.id,
         role=payload.role,
         company=payload.company or "General",
         difficulty=payload.difficulty or "Medium",
@@ -122,39 +134,40 @@ def create_interview_session(
 def submit_answer_for_session(
     session_id: int,
     payload: AnswerSubmitRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Interview session not found."
-        )
+    session = _get_owned_session(db, session_id, current_user)
 
     if session.status == "Completed":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This interview session is already completed."
+            detail="This interview session is already completed.",
         )
 
+    # Scores are always computed here, server-side, from the real answer text.
+    # They are never accepted from the client -- a client can't be trusted to
+    # grade its own answer.
+    scores = calculate_scores(payload.question, payload.answer)
+
     new_result = InterviewResult(
-        user_id=payload.user_id,
+        user_id=current_user.id,
         session_id=session.id,
         question=payload.question,
         answer=payload.answer,
-        technical_score=payload.technical_score,
-        communication_score=payload.communication_score,
-        confidence_score=payload.confidence_score,
-        relevance_score=payload.relevance_score,
-        grammar_score=payload.grammar_score,
-        overall_score=payload.overall_score,
-        feedback_text=payload.feedback_text,
+        technical_score=scores["technical"],
+        communication_score=scores["communication"],
+        confidence_score=scores["confidence"],
+        relevance_score=scores["relevance"],
+        grammar_score=scores["grammar"],
+        overall_score=scores["overall"],
+        feedback_text=scores["feedback"],
     )
     db.add(new_result)
 
     session.answered_questions += 1
     existing_results = db.query(InterviewResult).filter(InterviewResult.session_id == session_id).all()
-    all_scores = [r.overall_score for r in existing_results] + [payload.overall_score]
+    all_scores = [r.overall_score for r in existing_results] + [scores["overall"]]
     session.average_score = sum(all_scores) / len(all_scores)
 
     next_question = None
@@ -176,13 +189,13 @@ def submit_answer_for_session(
     db.commit()
 
     evaluation_summary = EvaluationDetail(
-        technical_score=payload.technical_score,
-        communication_score=payload.communication_score,
-        confidence_score=payload.confidence_score,
-        relevance_score=payload.relevance_score,
-        grammar_score=payload.grammar_score,
-        overall_score=payload.overall_score,
-        feedback_text=payload.feedback_text,
+        technical_score=scores["technical"],
+        communication_score=scores["communication"],
+        confidence_score=scores["confidence"],
+        relevance_score=scores["relevance"],
+        grammar_score=scores["grammar"],
+        overall_score=scores["overall"],
+        feedback_text=scores["feedback"],
     )
 
     return AnswerSubmissionResponse(
@@ -197,28 +210,19 @@ def submit_answer_for_session(
 @router.get("/{session_id}", response_model=SessionDetailResponse)
 def get_session_details(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Interview session not found."
-        )
-    return session
+    return _get_owned_session(db, session_id, current_user)
 
 
 @router.post("/{session_id}/complete", response_model=SessionResponse)
 def complete_session(
     session_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
 ):
-    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Interview session not found."
-        )
+    session = _get_owned_session(db, session_id, current_user)
 
     session.status = "Completed"
     session.completed_at = datetime.now(timezone.utc)
