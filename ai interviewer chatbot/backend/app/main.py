@@ -1,85 +1,26 @@
-import logging
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+import os
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from app.routers import auth, interview, resume, transcribe, dashboard
 
-# Import all application routers
-from app.routers import (
-    auth,
-    session,
-    resume,
-    transcribe,
-    interview,
-    questions,
-    eye_contact,
-)
+app = FastAPI(title="AI Interviewer Pro API")
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-)
-logger = logging.getLogger("app.main")
+origins = os.getenv("FRONTEND_URL", "*").split(",")
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logger.info("Application starting up...")
-
-    # NOTE: We deliberately do NOT preload the Whisper model here.
-    # It was tried (eager-load at boot) to avoid a slow first
-    # transcription request, but on Render's 512Mi tier the combined
-    # memory of FastAPI + torch + the mediapipe/opencv import chain
-    # (from eye_contact.py) plus the loaded Whisper model crosses the
-    # memory limit during startup, and the whole service gets OOM-killed
-    # before it can bind a port -- a full outage, which is worse than a
-    # few extra seconds on someone's first recorded answer. Whisper loads
-    # lazily on first use in transcribe.py's get_model() instead.
-    yield
-    logger.info("Application shutting down...")
-
-
-app = FastAPI(
-    title="AI Interviewer Pro API",
-    version="2.0.0",
-    lifespan=lifespan,
-)
-
-app.add_middleware(GZipMiddleware, minimum_size=1000)
-
-# CORS configuration allowing cross-origin requests from Vercel frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Register all API endpoints under /api/v1
-app.include_router(auth.router, prefix="/api/v1")
-app.include_router(session.router, prefix="/api/v1")
-app.include_router(resume.router, prefix="/api/v1")
-app.include_router(transcribe.router, prefix="/api/v1")
-app.include_router(interview.router, prefix="/api/v1")
-app.include_router(questions.router, prefix="/api/v1")
-app.include_router(eye_contact.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(resume.router, prefix="/api/v1/resume", tags=["Resume"])
+app.include_router(interview.router, prefix="/api/v1/interview", tags=["Interview"])
+app.include_router(transcribe.router, prefix="/api/v1/transcribe", tags=["Transcription"])
+app.include_router(dashboard.router, prefix="/api/v1/dashboard", tags=["Dashboard"])
 
-
-@app.get("/health", tags=["Health"])
-async def health_check():
-    return {
-        "status": "healthy",
-        "service": "AI Interviewer Pro Backend",
-        "version": "2.0.0",
-    }
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled error: {str(exc)}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "An internal server error occurred."},
-    )
+@app.get("/health")
+def health_check():
+    return {"status": "Production backend is running."}
