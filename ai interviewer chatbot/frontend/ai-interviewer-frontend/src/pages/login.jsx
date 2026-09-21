@@ -13,7 +13,6 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [oauthLoading, setOauthLoading] = useState(null); // 'google' | 'github' | null
   const [error, setError] = useState("");
 
   // Handle incoming OAuth Token Redirects (e.g. /login?token=XYZ or /auth/callback?token=XYZ)
@@ -176,7 +175,7 @@ export default function Login() {
 
           <button
             type="submit"
-            disabled={loading || !!oauthLoading}
+            disabled={loading}
             className="w-full py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-extrabold text-xs shadow-lg shadow-cyan-500/20 transition active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading ? (
@@ -201,28 +200,20 @@ export default function Login() {
           <button
             type="button"
             onClick={() => handleOAuthLogin("google")}
-            disabled={loading || !!oauthLoading}
+            disabled={loading}
             className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white transition active:scale-[0.98] disabled:opacity-50"
           >
-            {oauthLoading === "google" ? (
-              <span className="w-3.5 h-3.5 border-2 border-rose-400 border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <FaGoogle className="text-xs text-rose-400" />
-            )}
+            <FaGoogle className="text-xs text-rose-400" />
             Google
           </button>
 
           <button
             type="button"
             onClick={() => handleOAuthLogin("github")}
-            disabled={loading || !!oauthLoading}
+            disabled={loading}
             className="flex items-center justify-center gap-2 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white transition active:scale-[0.98] disabled:opacity-50"
           >
-            {oauthLoading === "github" ? (
-              <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : (
-              <FaGithub className="text-xs" />
-            )}
+            <FaGithub className="text-xs" />
             GitHub
           </button>
         </div>
