@@ -32,48 +32,35 @@ export default function Dashboard() {
   });
 
   const [rawSessions, setRawSessions] = useState([]);
+  const [userName, setUserName] = useState("there");
 
   useEffect(() => {
     let isMounted = true;
 
     const fetchDashboardData = async () => {
       try {
-        const sessionsData = await getUserSessions(1);
+        // Who is actually logged in -- used both for the greeting and to
+        // fetch that user's own sessions. Previously this whole page
+        // hardcoded user_id=1 for every visitor, which (combined with the
+        // backend having no auth check on that endpoint at the time) meant
+        // every logged-in user saw the same shared data.
+        const meRes = await api.get("/auth/me");
+        if (!isMounted) return;
+        setUserName(meRes.data?.name || "there");
 
+        const statsRes = await api.get("/dashboard/stats");
         if (!isMounted) return;
 
-        if (Array.isArray(sessionsData) && sessionsData.length > 0) {
-          const total = sessionsData.length;
-          const avg =
-            sessionsData.reduce((acc, curr) => acc + (curr.average_score || 0), 0) / total;
-          const best = Math.max(...sessionsData.map((s) => s.average_score || 0));
+        setStats({
+          total_interviews: statsRes.data.interviews || 0,
+          average_score: Math.round((statsRes.data.averageScore || 0) * 10),
+          best_score: Math.round((statsRes.data.bestScore || 0) * 10),
+          resumes: statsRes.data.resumes || 0,
+        });
 
-          setStats({
-            total_interviews: total,
-            average_score: Math.round(avg * 10),
-            best_score: Math.round(best * 10),
-            resumes: 1,
-          });
-
-          setRawSessions(sessionsData);
-        } else {
-          const res = await api.get("/interview/stats");
-          if (!isMounted) return;
-
-          setStats({
-            total_interviews: res.data.total_interviews || 0,
-            average_score: Math.round((res.data.average_score || 0) * 10),
-            best_score: Math.round(
-              (res.data.best_score || res.data.highest_score || 0) * 10
-            ),
-            resumes: 0,
-          });
-
-          const historyRes = await api.get("/interview/history");
-          if (!isMounted) return;
-
-          setRawSessions(historyRes.data || []);
-        }
+        const sessionsData = await getUserSessions(meRes.data.id);
+        if (!isMounted) return;
+        setRawSessions(Array.isArray(sessionsData) ? sessionsData : []);
       } catch (err) {
         console.error("Dashboard data fetch error:", err);
       }
@@ -122,7 +109,7 @@ export default function Dashboard() {
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-black text-white tracking-tight leading-snug">
               Welcome back,{" "}
               <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                Manohar
+                {userName}
               </span>{" "}
               👋
             </h1>
