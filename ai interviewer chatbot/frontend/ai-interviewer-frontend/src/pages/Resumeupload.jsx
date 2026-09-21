@@ -3,14 +3,15 @@ import { useNavigate } from "react-router-dom";
 import api from "../api/api";
 import DashboardHeader from "../components/dashboard/DashboardHeader";
 import { FaCloudUploadAlt, FaUser, FaGraduationCap, FaBriefcase, FaFileUpload } from "react-icons/fa";
+import { getErrorMessage } from "../utils/errorMessage";
 
 export default function ResumeUpload() {
   const navigate = useNavigate();
 
   const [file, setFile] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [analysis, setAnalysis] = useState(null);
+  const [result, setResult] = useState(null);
+  const [errorMessage, setErrorMessage] = useState("");
 
   const logout = () => {
     localStorage.removeItem("token");
@@ -21,34 +22,32 @@ export default function ResumeUpload() {
     e.preventDefault();
 
     if (!file) {
-      setError("Please select a resume file before uploading.");
+      alert("Please select a resume.");
       return;
     }
 
     try {
       setLoading(true);
-      setError("");
-      setAnalysis(null);
-      
-      const formData = new FormData();
-      formData.append("file", file);
+      setErrorMessage("");
+      setResult(null);
 
-      // Using the correct analysis endpoint
-      const response = await api.post("/api/v1/resume/analyze", formData, {
+      const formData = new FormData();
+      // Field name must be "resume" -- that's what the backend's
+      // /resume/analyze endpoint actually expects (UploadFile = File(...)
+      // parameter is named `resume`).
+      formData.append("resume", file);
+
+      const response = await api.post("/resume/analyze", formData, {
         headers: {
           "Content-Type": "multipart/form-data",
         },
       });
 
-      // Extract real analysis to prevent [object Object] error
-      setAnalysis(response.data.analysis_result || JSON.stringify(response.data, null, 2));
-      
-    } catch (err) {
-      console.error("Upload error:", err);
-      // Replace generic errors with readable messages from the backend
-      setError(err.response?.data?.detail || "Resume upload failed. Please try again.");
+      setResult(response.data);
+    } catch (error) {
+      console.error("Upload error:", error);
+      setErrorMessage(getErrorMessage(error));
     } finally {
-      // Prevents infinite loading states
       setLoading(false);
     }
   };
@@ -255,34 +254,63 @@ export default function ResumeUpload() {
               </p>
             )}
 
-            {/* Error Display */}
-            {error && (
-              <div className="mt-4 p-3 bg-red-500/20 border border-red-500/50 rounded-xl text-red-400 text-sm font-semibold">
-                {error}
-              </div>
-            )}
-
-            {/* Analysis Display */}
-            {analysis && (
-              <div className="mt-4 p-5 bg-slate-800/80 border border-cyan-500/30 rounded-xl">
-                <h3 className="font-semibold text-cyan-400 mb-3 flex items-center gap-2">
-                  📊 ATS Evaluation & Analysis
-                </h3>
-                <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">
-                  {analysis}
-                </p>
-                <div className="mt-5 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => navigate("/questions")}
-                    className="px-6 py-2 bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 rounded-lg text-sm font-bold hover:bg-emerald-500/30 transition-all"
-                  >
-                    Proceed to Practice →
-                  </button>
-                </div>
-              </div>
+            {errorMessage && (
+              <p className="text-xs font-semibold text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl px-3 py-2">
+                ⚠ {errorMessage}
+              </p>
             )}
           </div>
+
+          {/* Analysis Results */}
+          {result && (
+            <div className="bg-slate-900/60 backdrop-blur-xl border border-emerald-500/20 rounded-3xl p-6 shadow-xl space-y-4">
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                ✅ Resume Analysis Complete
+              </h2>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="bg-black/30 border border-white/10 rounded-xl p-4">
+                  <p className="text-xs text-gray-400 uppercase tracking-wider">Overall Score</p>
+                  <p className="text-3xl font-black text-emerald-400">{result.score}%</p>
+                </div>
+                <div className="bg-black/30 border border-white/10 rounded-xl p-4">
+                  <p className="text-xs text-gray-400 uppercase tracking-wider">ATS Keyword Match</p>
+                  <p className="text-3xl font-black text-cyan-400">{result.keywordMatch}%</p>
+                </div>
+              </div>
+
+              {result.strengths?.length > 0 && (
+                <div>
+                  <p className="text-sm font-bold text-emerald-400 mb-1">Strengths</p>
+                  <ul className="text-sm text-gray-300 list-disc list-inside space-y-1">
+                    {result.strengths.map((s, i) => (
+                      <li key={i}>{s}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {result.missingSkills?.length > 0 && (
+                <div>
+                  <p className="text-sm font-bold text-amber-400 mb-1">Missing Skills</p>
+                  <div className="flex flex-wrap gap-2">
+                    {result.missingSkills.map((sk, i) => (
+                      <span key={i} className="text-xs bg-amber-500/10 border border-amber-500/30 text-amber-300 rounded-full px-3 py-1">
+                        {sk}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {result.suggestions && (
+                <div>
+                  <p className="text-sm font-bold text-cyan-400 mb-1">Suggestions</p>
+                  <p className="text-sm text-gray-300">{result.suggestions}</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex justify-between items-center pt-2">
@@ -294,14 +322,21 @@ export default function ResumeUpload() {
               ← Back to Dashboard
             </button>
 
-            {/* Hide the upload button once analysis is successful so the user proceeds to practice instead */}
-            {!analysis && (
+            {result ? (
+              <button
+                type="button"
+                onClick={() => navigate("/questions")}
+                className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold text-sm shadow-lg shadow-emerald-500/20 transition-all"
+              >
+                Continue to Questions →
+              </button>
+            ) : (
               <button
                 type="submit"
                 disabled={loading}
                 className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold text-sm shadow-lg shadow-cyan-500/20 transition-all disabled:opacity-50"
               >
-                {loading ? "Analyzing Resume..." : "Upload & Analyze →"}
+                {loading ? "Analyzing Resume..." : "Analyze Resume →"}
               </button>
             )}
           </div>
